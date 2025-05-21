@@ -45,6 +45,8 @@ for fh in glob.glob(f"{CIDR_GVCF_PREF}/*.gz"):
         if subject2sample[s] in fh:
             smp2fh[s] = fh
 
+SAMPLES = smp2fh.keys()
+
 # BIN_SIZE = 5_000_000
 # genome = pd.read_csv("hg38.genome", sep="\t")
 # CHROMS = []
@@ -67,15 +69,17 @@ for fh in glob.glob(f"{CIDR_GVCF_PREF}/*.gz"):
 #         # STARTS.append(start)
 #         # ENDS.append(end)
 
+def get_orig_gvcf(wildcards):
+    return smp2fh[wildcards.SAMPLE]
+
 wildcard_constraints:
     INTERVAL = "chr[0-9]{1,2}_[0-9]+_[0-9]+",
-    CHROM = "chr[1-9]{1,2}"
+    CHROM = "chr[0-9]{1,2}"
 
 rule all:
     input:
         #"joint_called/vqsr/chr21.snp_indel.vcf.gz",
-        "csv/slivar.chr21.tsv"
-
+        expand("csv/slivar.{CHROM}.tsv", CHROM=CHROMS)
 
 rule make_ped:
     input:
@@ -100,14 +104,41 @@ rule make_ped:
         combined.to_csv(output.ped, index=False, sep="\t")
 
 
+rule normalize_gvcf:
+    input:
+        gvcf = lambda wildcards: smp2fh[wildcards.SAMPLE]
+    output:
+        gvcf = "data/gvcf/{SAMPLE}.normed.g.vcf.gz"
+    threads: 4
+    shell:
+        """
+        bcftools norm --threads {threads} -m +any -Oz -o {output.gvcf} {input.gvcf}
+        """
+
+
+rule index_gvcf:
+    input:
+        gvcf = "data/gvcf/{SAMPLE}.normed.g.vcf.gz"
+    output:
+        "data/gvcf/{SAMPLE}.normed.g.vcf.tbi"
+    shell:
+        """
+        module load bcftools
+        
+        bcftools index --tbi {input.gvcf}
+        """
+
+
 rule make_map:
     input:
+        gvcfs = expand("data/gvcf/{SAMPLE}.normed.g.vcf.gz", SAMPLE=SAMPLES)
     output: fh = "cohort.sample_map"
     run:
         with open(output.fh, "w") as outfh:
-            for k,v in smp2fh.items():
-                print (f"{k}\t{v}", file=outfh)
-            outfh.close()
+            for fh in input.gvcfs:
+                sample_id = fh.split("/")[-1].split(".")[0]
+                print ("\t".join([sample_id, fh]), file=outfh)
+        outfh.close()
 
 
 rule add_interval_to_db:
