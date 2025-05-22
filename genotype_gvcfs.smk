@@ -79,7 +79,7 @@ wildcard_constraints:
 rule all:
     input:
         #"joint_called/vqsr/chr21.snp_indel.vcf.gz",
-        expand("csv/slivar.{CHROM}.tsv", CHROM=CHROMS)
+        "csv/slivar.chr21.tsv"
 
 rule make_ped:
     input:
@@ -108,19 +108,22 @@ rule normalize_gvcf:
     input:
         gvcf = lambda wildcards: smp2fh[wildcards.SAMPLE]
     output:
-        gvcf = "data/gvcf/{SAMPLE}.normed.g.vcf.gz"
+        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz"
     threads: 4
     shell:
         """
-        bcftools norm --threads {threads} -m +any -Oz -o {output.gvcf} {input.gvcf}
+        bcftools norm -r {wildcards.CHROM} \
+                      --threads {threads} \
+                      -m +any \
+                      -Oz \
+                      -o {output.gvcf} {input.gvcf}
         """
 
 
 rule index_gvcf:
     input:
-        gvcf = "data/gvcf/{SAMPLE}.normed.g.vcf.gz"
-    output:
-        "data/gvcf/{SAMPLE}.normed.g.vcf.tbi"
+        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz"
+    output:  "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz.tbi"
     shell:
         """
         module load bcftools
@@ -131,8 +134,9 @@ rule index_gvcf:
 
 rule make_map:
     input:
-        gvcfs = expand("data/gvcf/{SAMPLE}.normed.g.vcf.gz", SAMPLE=SAMPLES)
-    output: fh = "cohort.sample_map"
+        gvcfs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.g.vcf.gz", SAMPLE=SAMPLES),
+        idxs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.g.vcf.gz.tbi", SAMPLE=SAMPLES)
+    output: fh = "cohort.{CHROM}.sample_map"
     run:
         with open(output.fh, "w") as outfh:
             for fh in input.gvcfs:
@@ -143,7 +147,7 @@ rule make_map:
 
 rule add_interval_to_db:
     input:
-        sample_map = "cohort.sample_map"
+        sample_map = "cohort.{CHROM}.sample_map"
     output:  
         db = directory("databases/{CHROM}_database/"),
     threads: 8
