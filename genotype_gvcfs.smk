@@ -2,22 +2,19 @@ import pandas as pd
 import glob
 from collections import defaultdict
 import numpy as np
+import csv
 
 CIDR_GVCF_PREF = "Quinlan_Released_Data/GVCF"
 ORIG_PREF = "/scratch/ucgd/lustre-labs/quinlan/data-shared/datasets/CEPH"
-FAMILY_ID = "1463"
-DB = "/scratch/ucgd/lustre-labs/quinlan/u1006375/my_database/"
 REF = "/scratch/ucgd/lustre/common/data/Reference/homo_sapiens/GRCh38/primary_assembly_decoy_phix_masked.fa"
 
 CHROMS = list(map(str, range(1, 23)))
-CHROMS = [f"chr{c}" for c in CHROMS]
-
+CHROMS = [f"chr{c}" for c in CHROMS] + ["chrX", "chrY"]
 
 orig_ped = f"{ORIG_PREF}/ped/2019-6-27-manual-checked-ceph.no_missing_samples.sorted.peddy_filtered.ped"
 
 # get sample IDs in original CEPH cohort
 orig_ped = pd.read_csv(orig_ped, sep="\t", names=["FAMILY_ID", "SAMPLE_ID", "FATHER_ID", "MOTHER_ID", "SEX", "PHENOTYPE", "AGE", "DENOMINATOR"], dtype={"FAMILY_ID": "string", "SAMPLE_ID": "string"})
-orig_ped = orig_ped[orig_ped["FAMILY_ID"] == FAMILY_ID]
 orig_sample_ids = orig_ped["SAMPLE_ID"].unique()
 
 # create mapping of sample IDs to file names
@@ -30,7 +27,6 @@ for fh in glob.glob(f"{ORIG_PREF}/vcf/snv_indels/*.gz"):
 # get sample IDs in new CIDR CEPH cohort
 sample_info = pd.read_csv("Quinlan_Released_Data/Sample_Info/SubjectSampleMappingFile_QuinlanNeklason.csv", dtype={"SUBJECT_ID": "string", "SAMPLE_ID": "string"},)
 cidr_ped = pd.read_excel("Quinlan_Released_Data/Sample_Info/QuinlanNeklason_SIF.xlsx", sheet_name="Sheet0", dtype={"Family": "string", "Individual": "string"})
-cidr_ped = cidr_ped[cidr_ped["Family"] == FAMILY_ID].dropna()
 
 cidr_sample_ids = cidr_ped["Individual"].unique()
 
@@ -46,47 +42,37 @@ for fh in glob.glob(f"{CIDR_GVCF_PREF}/*.gz"):
             smp2fh[s] = fh
 
 SAMPLES = smp2fh.keys()
+print (len(SAMPLES))
 
-# BIN_SIZE = 5_000_000
-# genome = pd.read_csv("hg38.genome", sep="\t")
-# CHROMS = []
-# STARTS, ENDS = [], []
-
-# CHROM2INTERVAL = defaultdict(list)
-
-# for i, row in genome.iterrows():
-#     bins = np.arange(1, row["size"], BIN_SIZE)
-#     starts, ends = bins[:-1], bins[1:]
-#     if any([s in row["chrom"] for s in ("fix", "alt", "random", "Un")]): 
-#         continue
-#     if row["chrom"] != "chr21": continue
-#     for start, end in zip(starts, ends):
-#         if start == 1: continue
-#         interval = f"{row['chrom']}_{start}_{end}"
-#         CHROM2INTERVAL[row["chrom"]].append(interval)
-#         # INTERVALS.append((row["chrom"], start, end))
-#         # CHROMS.append(row["chrom"])
-#         # STARTS.append(start)
-#         # ENDS.append(end)
+CHROM2INTERVAL = defaultdict(list)
+with open("wgs_calling_regions.hg38.interval_list.1Mbp.bed", "rt") as infh:
+    csvf = csv.reader(infh, delimiter="\t")
+    for l in csvf:
+        chrom, start, end = l
+        CHROM2INTERVAL[chrom].append((start, end))
 
 def get_orig_gvcf(wildcards):
     return smp2fh[wildcards.SAMPLE]
 
+
 wildcard_constraints:
     INTERVAL = "chr[0-9]{1,2}_[0-9]+_[0-9]+",
-    CHROM = "chr[0-9]{1,2}"
+    CHROM = "chr[0-9]{1,2}|chrX|chrY",
+    START = "[0-9]+",
+    END = "[0-9]+"
+
 
 rule all:
     input:
-        #"joint_called/vqsr/chr21.snp_indel.vcf.gz",
-        "csv/slivar.chr21.tsv"
+        expand("csv/slivar.{CHROM}.tsv", CHROM=CHROMS)
+        # "ped/joint.cidr.ceph.ped"
 
 rule make_ped:
     input:
         orig_ped = f"{ORIG_PREF}/ped/2019-6-27-manual-checked-ceph.no_missing_samples.sorted.peddy_filtered.ped",
         cidr_ped = "Quinlan_Released_Data/Sample_Info/QuinlanNeklason_SIF.xlsx"
     output:
-        ped = "joint.ped"
+        ped = "ped/joint.cidr.ceph.ped"
     run:
         import pandas as pd
 
@@ -100,43 +86,82 @@ rule make_ped:
         # ditch already existing samples
         cidr_ped = cidr_ped[~cidr_ped["SAMPLE_ID"].isin(orig_samples)]
         combined = pd.concat([orig_ped, cidr_ped])
-        combined = combined[combined["FAMILY_ID"] == 1463]
         combined.to_csv(output.ped, index=False, sep="\t")
 
 
 rule normalize_gvcf:
     input:
-        gvcf = lambda wildcards: smp2fh[wildcards.SAMPLE]
+        gvcf = lambda wildcards: smp2fh[wildcards.SAMPLE],
     output:
-        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz"
+        gvcf = temp("data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz")
+    resources:
+        mem_mb = 32_000
     threads: 4
     shell:
         """
-        bcftools norm -r {wildcards.CHROM} \
-                      --threads {threads} \
-                      -m +any \
-                      -Oz \
-                      -o {output.gvcf} {input.gvcf}
+        module load bcftools
+
+        bcftools norm --regions {wildcards.CHROM} --threads {threads} -m +any -Oz -o {output.gvcf} {input.gvcf}
+        """
+
+
+rule index_normalized_gvcf:
+    input:
+        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz"
+    output:
+        idx = temp("data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz.tbi")
+    resources:
+        mem_mb = 32_000
+    threads: 4
+    shell:
+        """
+        module load gatk/4.6
+
+        gatk IndexFeatureFile -I {input.gvcf}
+        """
+
+
+rule remove_mnps:
+    input:
+        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz",
+        gvcf_idx = "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz.tbi",
+        ref = REF,
+    output:
+        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.no_mnps.g.vcf.gz"
+    resources:
+        mem_mb = 32_000
+    shell:
+        """
+        module load gatk/4.6
+
+        gatk --java-options '-Xmx24g -Xms24g' \
+                SelectVariants \
+                -V {input.gvcf} \
+                -R {input.ref} \
+                --select-type-to-exclude MNP \
+                -O {output.gvcf} \
+                --ignore-non-ref-in-types
         """
 
 
 rule index_gvcf:
     input:
-        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz"
-    output:  "data/gvcf/{SAMPLE}.{CHROM}.normed.g.vcf.gz.tbi"
+        gvcf = "data/gvcf/{SAMPLE}.{CHROM}.normed.no_mnps.g.vcf.gz"
+    output: "data/gvcf/{SAMPLE}.{CHROM}.normed.no_mnps.g.vcf.gz.tbi"
+
     shell:
         """
-        module load bcftools
+        module load gatk/4.6
         
-        bcftools index --tbi {input.gvcf}
+        gatk IndexFeatureFile -I {input.gvcf}
         """
 
 
 rule make_map:
     input:
-        gvcfs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.g.vcf.gz", SAMPLE=SAMPLES),
-        idxs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.g.vcf.gz.tbi", SAMPLE=SAMPLES)
-    output: fh = "cohort.{CHROM}.sample_map"
+        gvcfs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.no_mnps.g.vcf.gz", SAMPLE=SAMPLES),
+        idxs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.no_mnps.g.vcf.gz.tbi", SAMPLE=SAMPLES)
+    output: fh = "sample_maps/{CHROM}.sample_map"
     run:
         with open(output.fh, "w") as outfh:
             for fh in input.gvcfs:
@@ -147,9 +172,11 @@ rule make_map:
 
 rule add_interval_to_db:
     input:
-        sample_map = "cohort.{CHROM}.sample_map"
+        sample_map = "sample_maps/{CHROM}.sample_map",
+        gvcfs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.no_mnps.g.vcf.gz", SAMPLE=SAMPLES),
+        idxs = expand("data/gvcf/{SAMPLE}.{{CHROM}}.normed.no_mnps.g.vcf.gz.tbi", SAMPLE=SAMPLES)
     output:  
-        db = directory("databases/{CHROM}_database/"),
+        db = directory("databases/{CHROM}/{START}_{END}_database/"),
     threads: 8
     resources:
         mem_mb = 32_000
@@ -163,7 +190,7 @@ rule add_interval_to_db:
                 GenomicsDBImport \
                 --genomicsdb-workspace-path {output.db} \
                 --batch-size 8 \
-                -L {wildcards.CHROM} \
+                -L {wildcards.CHROM}:{wildcards.START}-{wildcards.END} \
                 --sample-name-map {input.sample_map} \
                 --tmp-dir /scratch/ucgd/lustre-labs/quinlan/u1006375/gatk_tmp \
                 --reader-threads 8
@@ -173,10 +200,9 @@ rule add_interval_to_db:
 
 rule genotype_gvcfs:
     input:
-        database = "databases/{CHROM}_database/",
+        database = "databases/{CHROM}/{START}_{END}_database/",
         ref = REF
-    output:
-        "joint_called/{CHROM}.vcf.gz"
+    output: "vcf/joint_called/{CHROM}/{START}.{END}.vcf.gz"
     resources:
         mem_mb = 32_000
     shell:
@@ -187,14 +213,66 @@ rule genotype_gvcfs:
             -R {input.ref} \
             -V gendb://{input.database} \
             -O {output} \
-            --intervals {wildcards.CHROM}
+            --intervals {wildcards.CHROM}:{wildcards.START}-{wildcards.END}
         """
 
-rule make_site_level_vcf:
+
+rule merge_genotyped_vcfs:
     input:
-        "joint_called/{CHROM}.vcf.gz"
+        vcfs = lambda wildcards: expand("vcf/joint_called/{{CHROM}}/{START}.{END}.vcf.gz", zip, START=[t[0] for t in CHROM2INTERVAL[wildcards.CHROM]], END=[t[1] for t in CHROM2INTERVAL[wildcards.CHROM]]),
     output:
-        "joint_called/sites/{CHROM}.sites.vcf.gz"
+        vcf = "vcf/joint_called/{CHROM}.merged.vcf.gz"
+    threads: 8
+    resources:
+        mem_mb = 32_000
+    shell:
+        """
+        module load bcftools
+
+        bcftools concat --threads {threads} -Oz -o {output.vcf} {input.vcfs}
+        """
+
+rule find_denovos:
+    input:
+        vcf = "vcf/joint_called/{CHROM}.merged.vcf.gz",
+        ped = "ped/joint.cidr.ceph.ped"
+    output:
+        vcf = "vcf/slivar/{CHROM}.filtered.bcf"
+    shell:
+        """
+        slivar expr \
+            --pass-only \
+            --vcf {input.vcf} \
+            --ped {input.ped} \
+            --out-vcf {output.vcf} \
+            --info '!variant.is_multiallelic' \
+            --trio 'denovo:kid.het && mom.hom_ref && dad.hom_ref \
+                            && kid.AB >= 0.2 && kid.AB <= 0.8 \
+                            && kid.GQ >= 20 && mom.GQ >= 20 && dad.GQ >= 20 \
+                            && kid.DP >= 10 && mom.DP >= 10 && dad.DP >= 10' \
+                          
+        """
+
+rule output_denovo_tsv:
+    input:
+        vcf = "vcf/slivar/{CHROM}.filtered.bcf",
+        ped = "ped/joint.cidr.ceph.ped"
+    output:
+        tsv = "csv/slivar.{CHROM}.tsv"
+    shell:
+        """
+        slivar tsv -p {input.ped} \
+            -s denovo \
+            {input.vcf} > {output.tsv}
+        """
+
+
+### VQSR RULES (CURRENTLY UNUSED) ###
+
+
+rule make_site_level_vcf:
+    input: "joint_called/{CHROM}/{START}.{END}.vcf.gz"
+    output: "joint_called/sites/{CHROM}/{START}.{END}.sites.vcf.gz"
     resources:
         mem_mb = 32_000
     shell:
@@ -252,10 +330,10 @@ rule calculate_vqsr_indels:
         axiom = "vqsr_files/Axiom_Exome_Plus.genotypes.all_populations.poly.hg38.vcf.gz",
         mills = "vqsr_files/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz",
         dbsnp = "vqsr_files/Homo_sapiens_assembly38.dbsnp138.vcf.gz",
-        vcf = "joint_called/sites/{CHROM}.sites.vcf.gz"
+        vcf = "joint_called/sites/{CHROM}/{START}.{END}.sites.vcf.gz"
     output:
-        recal = "recal/{CHROM}.indel.recal",
-        tranche = "tranche/{CHROM}.indel.tranches"
+        recal = "recal/{CHROM}/{START}.{END}.indel.recal",
+        tranche = "tranche/{CHROM}/{START}.{END}.indel.tranches"
     resources: 
         mem_mb = 32_000
     shell:
@@ -280,7 +358,7 @@ rule calculate_vqsr_indels:
              -tranche 92.0 \
              -tranche 91.0 \
              -tranche 90.0 \
-             -an FS -an ReadPosRankSum -an MQRankSum -an QD -an SOR -an DP \
+             -an DP \
              -mode INDEL \
              --max-gaussians 4 \
              -resource:mills,known=false,training=true,truth=true,prior=12 {input.mills} \
@@ -296,10 +374,10 @@ rule calculate_vqsr_snps:
         thousand_genomes = "vqsr_files/1000G_phase1.snps.high_confidence.hg38.vcf.gz",
         hapmap = "vqsr_files/hapmap_3.3.hg38.vcf.gz",
         omni = "vqsr_files/1000G_omni2.5.hg38.vcf.gz",
-        vcf = "joint_called/sites/{CHROM}.sites.vcf.gz"
+        vcf = "joint_called/sites/{CHROM}/{START}.{END}.sites.vcf.gz"
     output:
-        recal = "recal/{CHROM}.snp.recal",
-        tranche = "tranche/{CHROM}.snp.tranches"
+        recal = "recal/{CHROM}/{START}.{END}.snp.recal",
+        tranche = "tranche/{CHROM}/{START}.{END}.snp.tranches"
     shell:
         """
         module load gatk/4.6
@@ -320,8 +398,8 @@ rule calculate_vqsr_snps:
                 -tranche 98.0 \
                 -tranche 97.0 \
                 -tranche 90.0 \
-                -an QD -an MQRankSum -an ReadPosRankSum -an FS -an MQ -an SOR -an DP \
                 -mode SNP \
+                -an DP \
                 --max-gaussians 6 \
                 -resource:hapmap,known=false,training=true,truth=true,prior=15 {input.hapmap} \
                 -resource:omni,known=false,training=true,truth=true,prior=12 {input.omni} \
@@ -333,11 +411,11 @@ rule calculate_vqsr_snps:
 
 rule apply_vqsr_indels:
     input:
-        vcf = "joint_called/{CHROM}.vcf.gz",
-        recal = "recal/{CHROM}.indel.recal",
-        tranche = "tranche/{CHROM}.indel.tranches"
+        vcf = "joint_called/{CHROM}/{START}.{END}.vcf.gz",
+        recal = "recal/{CHROM}/{START}.{END}.indel.recal",
+        tranche = "tranche/{CHROM}/{START}.{END}.indel.tranches"
     output:
-        vcf = "joint_called/vqsr/{CHROM}.vcf.gz"
+        vcf = "joint_called/vqsr/{CHROM}/{START}.{END}.vcf.gz"
     resources:
         mem_mb = 8_000
     shell:
@@ -357,11 +435,11 @@ rule apply_vqsr_indels:
 
 rule apply_vqsr_snps:
     input:
-        vcf = "joint_called/vqsr/{CHROM}.vcf.gz",
-        recal = "recal/{CHROM}.snp.recal",
-        tranche = "tranche/{CHROM}.snp.tranches"
+        vcf = "joint_called/vqsr/{CHROM}/{START}.{END}.vcf.gz",
+        recal = "recal/{CHROM}/{START}.{END}.snp.recal",
+        tranche = "tranche/{CHROM}/{START}.{END}.snp.tranches"
     output:
-        vcf = "joint_called/vqsr/{CHROM}.snp_indel.vcf.gz"
+        vcf = "joint_called/vqsr/{CHROM}/{START}.{END}.snp_indel.vcf.gz"
     resources:
         mem_mb = 8_000
     shell:
@@ -376,55 +454,4 @@ rule apply_vqsr_snps:
             --create-output-variant-index true \
             -mode SNP \
             -O {output.vcf}
-        """
-
-
-
-rule merge_genotyped_vcfs:
-    input:
-        vcfs = lambda wildcards: expand("joint_called/vqsr/{CHROM}.snp_indel.vcf.gz", CHROM=CHROMS),
-    output:
-        vcf = "joint_called/merged.vqsr.vcf.gz"
-    threads: 8
-    resources:
-        mem_mb = 32_000
-    shell:
-        """
-        module load bcftools
-
-        bcftools concat --threads {threads} -Oz -o {output.vcf} {input.vcfs}
-        """
-
-rule find_denovos:
-    input:
-        vcf = "joint_called/vqsr/{CHROM}.snp_indel.vcf.gz",
-        ped = "joint.ped"
-    output:
-        vcf = "joint_called/slivar/{CHROM}.filtered.bcf"
-    shell:
-        """
-        slivar expr \
-            --pass-only \
-            --vcf {input.vcf} \
-            --ped {input.ped} \
-            --out-vcf {output.vcf} \
-            --info 'variant.call_rate > 0.9 && !variant.is_multiallelic' \
-            --trio 'denovo:kid.het && mom.hom_ref && dad.hom_ref \
-                            && kid.AB > 0.2 && kid.AB < 0.8 \
-                            && kid.GQ >= 20 && mom.GQ >= 20 && dad.GQ >= 20 \
-                            && kid.DP >= 10 && mom.DP >= 10 && dad.DP >= 10' \
-                          
-        """
-
-rule output_denovo_tsv:
-    input:
-        vcf = "joint_called/slivar/{CHROM}.filtered.bcf",
-        ped = "joint.ped"
-    output:
-        tsv = "csv/slivar.{CHROM}.tsv"
-    shell:
-        """
-        slivar tsv -p {input.ped} \
-            -s denovo \
-            {input.vcf} > {output.tsv}
         """
