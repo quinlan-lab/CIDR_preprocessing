@@ -1,5 +1,5 @@
 # RE-RUN BEHAVIOR
-rerun-incomplete: false
+rerun-incomplete: true
 keep-going: true
 
 retries: 0
