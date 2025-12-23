@@ -49,6 +49,8 @@ rule cram2fastq:
         fq1 = temp("data/fastq/{SAMPLE}.1.fastq.gz"),
         fq2 = temp("data/fastq/{SAMPLE}.2.fastq.gz")
     threads: 8
+    resources:
+        mem_mb = 32_000
     shell:
         """
         module load samtools

@@ -113,7 +113,8 @@ rule convert_to_cram:
                       -C \
                       -o {output.cram} \
                       -T {input.reference} \
-                      --output-fmt-option embed_ref=1
+                      --output-fmt-option embed_ref=1 \
+                      {input.bam}
         """
 
 
