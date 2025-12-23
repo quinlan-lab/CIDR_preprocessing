@@ -1,25 +1,41 @@
+import pandas as pd
+from collections import defaultdict
+import glob 
+
 ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
+
+
+rule index_ref:
+    input:
+        reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
+        bwa_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/src/bwa-mem2-2.2.1_x64-linux/bwa-mem2"
+    output:
+        expand("data/ref/human_g1k_v38_decoy_phix.fasta.{suff}", suff=["pac", "ann", "amb"])
+    shell:
+        """
+        {input.bwa_binary} -p data/ref/human_g1k_v38_decoy_phix {input.reference}
+        """
 
 
 rule fastq2bam:
     input:
-        reference = ELIFE_REF_FH,
-        fq1 = "data/fastq/{SAMPLE}.1.clean.fastq.gz",
-        fq2 = "data/fastq/{SAMPLE}.2.clean.fastq.gz"
+        reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
+        fq1 = "data/fastq/{SAMPLE}.1.fastq.gz", # NOTE: use FASTQC-cleaned here?
+        fq2 = "data/fastq/{SAMPLE}.2.fastq.gz",
+        bwa_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/src/bwa-mem2-2.2.1_x64-linux/bwa-mem2",
+        sambamba_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/bin/sambamba-1.0.1-linux-amd64-static"
     output:
         bam = temp("data/bam/{SAMPLE}.bam")
-    threads: 16
+    threads: 32
     resources:
-        mem_mb = 32_000
+        mem_mb = 64_000
     shell:
-        """
-        module load bwa samtools
-        
-        bwa mem {input.reference} \
+        """        
+        {input.bwa_binary} mem {input.reference} \
                 {input.fq1} \
                 {input.fq2} \
                 -t {threads} | \
-                samtools sort -o {output.bam}
+                {input.sambamba_binary} view -S -f bam -o {output.bam} /dev/stdin
         """
 
 
@@ -34,13 +50,13 @@ rule add_read_groups:
         """
         module load gatk/4.6
         
-        gatk -Xmx48g \
+        gatk --java-options "-Xmx48g" \
              AddOrReplaceReadGroups \
              -I {input.bam} \
              -O {output.bam} \
              --RGSM {wildcards.SAMPLE} \
              --RGLB lib1 \
-             --RGPL illumina \
+             --RGPL ILLUMINA \
              --RGDS {wildcards.SAMPLE} \
              --RGPU unit1
         """
@@ -48,47 +64,47 @@ rule add_read_groups:
 
 rule sort_bam:
     input:
-        bam = "data/bam/{SAMPLE}.rg.bam"
+        bam = "data/bam/{SAMPLE}.rg.bam",
+        sambamba_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/bin/sambamba-1.0.1-linux-amd64-static"
     output:
         bam = temp("data/bam/{SAMPLE}.rg.sorted.bam")
     threads: 8
     resources:
-        mem_mb = 16_000
+        mem_mb = 32_000
     params:
         tmpdir = "/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/"
     shell:
-        """
-        module load samtools
-        
-        samtools sort -@ {threads} \
-                      -Ob \
+        """       
+        {input.sambamba_binary} sort \
+                      -t {threads} \
+                      -m 32G \
+                      -p \
                       -o {output.bam} \
-                      -T {params.tmpdir} \
-                      -m 16G \
+                      --tmpdir {params.tmpdir} \
                       {input.bam}
         """
 
 
 rule index_bam:
     input:
-        bam = "data/bam/{SAMPLE}.rg.sorted.bam"
+        bam = "data/bam/{SAMPLE}.rg.sorted.bam",
+        sambamba_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/bin/sambamba-1.0.1-linux-amd64-static"
     output:
         idx = "data/bam/{SAMPLE}.rg.sorted.bam.bai"
     threads: 8
     shell:
-        """
-        module load samtools
-        
-        samtools index -@ {threads} {input.bam}
+        """        
+        {input.sambamba_binary} index -t {threads} {input.bam}
         """ 
 
     
 rule convert_to_cram:
     input:
         bam = "data/bam/{SAMPLE}.rg.sorted.bam",
-        reference = ELIFE_REF_FH,
+        reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
     output:
-        cram = "data/cram/{SAMPLE}.cram"
+        cram = temp("data/cram/{SAMPLE}.cram")
+    threads: 8
     shell:
         """
         module load samtools
@@ -115,7 +131,7 @@ rule mark_duplicates:
         """
         module load gatk/4.6
 
-        gatk -Xmx48g \
+        gatk --java-options "-Xmx48g" \
              MarkDuplicates \
              -I {input.cram} \
              -O {output.cram} \

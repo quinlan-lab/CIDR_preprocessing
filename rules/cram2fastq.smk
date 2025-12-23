@@ -19,24 +19,31 @@ def get_cram_fh(wildcards):
 
 rule namesort_cram:
     input:
-        cram = get_cram_fh
+        cram = get_cram_fh,
     output:
-        cram = temp("data/cram/{SAMPLE}.sorted.cram")
+        cram = temp("data/intermediate_cram/{SAMPLE}.sorted.cram")
+    params:
+        tmpdir = "/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/"
+    resources:
+        mem_mb = 48_000
+    threads: 8
     shell:
         """
         module load samtools
         
-        samtools sort -@ {threads} \
-                      -n \
+        samtools sort -n \
                       -O CRAM \
                       -o {output.cram} \
+                      -T {params.tmpdir} \
+                      -@ {threads} \
+                      -m 4G \
                       {input.cram}
         """
 
 
 rule cram2fastq:
     input:
-        cram = get_cram_fh,
+        cram = "data/intermediate_cram/{SAMPLE}.sorted.cram",
         reference = DRAGEN_REF_FH,
     output:
         fq1 = temp("data/fastq/{SAMPLE}.1.fastq.gz"),
@@ -59,8 +66,8 @@ rule clean_with_fastq:
         fq1 = "data/fastq/{SAMPLE}.1.fastq.gz",
         fq2 = "data/fastq/{SAMPLE}.2.fastq.gz",
     output:
-        fq1_clean = temp("data/fastq/{SAMPLE}.1.clean.fastq"),
-        fq2_clean = temp("data/fastq/{SAMPLE}.2.clean.fastq"),
+        fq1_clean = temp("data/fastq/{SAMPLE}.1.clean.fastq.gz"),
+        fq2_clean = temp("data/fastq/{SAMPLE}.2.clean.fastq.gz"),
         html_report = "reports/{SAMPLE}-fastp-report.html",
         json_report = "reports/{SAMPLE}-fastp-report.json"
     threads: 16
@@ -79,17 +86,4 @@ rule clean_with_fastq:
                 --disable_trim_poly_g \
                 --html {output.html_report} \
                 --json {output.json_report}
-        """
-
-
-rule compress_fastq:
-    input:
-        fq = "data/fastq/{SAMPLE}.{PAIR}.clean.fastq"
-    output:
-        fq = "data/fastq/{SAMPLE}.{PAIR}.clean.fastq.gz"
-    shell:
-        """
-        module load bgzip
-        
-        bgzip {input.fq}
         """
