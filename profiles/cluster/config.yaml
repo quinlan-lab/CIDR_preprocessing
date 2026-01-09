@@ -1,15 +1,16 @@
 # RE-RUN BEHAVIOR
 rerun-incomplete: true
-keep-going: true
+keep-going: false
 
 retries: 0
 
 # CLUSTER BEHAVIOR
 executor: slurm
-jobs: 96
+jobs: 48
 
 default-resources:
   slurm_account: "quinlan-rw"
   slurm_partition: "quinlan-shared-rw"
+  slurm_extra: "--nodelist=rw216,rw217,rw218" 
   runtime: 720
   mem_mb: 16000

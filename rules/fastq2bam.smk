@@ -2,6 +2,8 @@ import pandas as pd
 from collections import defaultdict
 import glob 
 
+
+# we re-align CIDR to the HG38 version used for the ELIFE samples
 ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
 
 
@@ -20,7 +22,7 @@ rule index_ref:
 rule fastq2bam:
     input:
         reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
-        fq1 = "data/fastq/{SAMPLE}.1.fastq.gz", # NOTE: use FASTQC-cleaned here?
+        fq1 = "data/fastq/{SAMPLE}.1.fastq.gz",
         fq2 = "data/fastq/{SAMPLE}.2.fastq.gz",
         bwa_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/src/bwa-mem2-2.2.1_x64-linux/bwa-mem2",
         sambamba_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/bin/sambamba-1.0.1-linux-amd64-static"
@@ -70,7 +72,7 @@ rule sort_bam:
         bam = temp("data/bam/{SAMPLE}.rg.sorted.bam")
     threads: 8
     resources:
-        mem_mb = 32_000
+        mem_mb = 64_000
     params:
         tmpdir = "/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/"
     shell:
@@ -117,17 +119,19 @@ rule convert_to_cram:
                       {input.bam}
         """
 
-
+# NOTE: this removes the embedded reference!
 rule mark_duplicates:
     input:
-        cram = "data/cram/{SAMPLE}.cram"
+        cram = "data/cram/{SAMPLE}.cram",
+        reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
     output:
         cram = "data/cram/{SAMPLE}.dupmarked.cram",
-        idx = "data/cram/{SAMPLE}.dupmarked.cram.crai"
+        metrics = "data/markdup_metrics/{SAMPLE}.metrics.txt"
     params:
         tmpdir = "/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/"
     resources:
-        mem_mb = 48_000
+        mem_mb = 64_000,
+        runtime = 1_080
     shell:
         """
         module load gatk/4.6
@@ -136,9 +140,26 @@ rule mark_duplicates:
              MarkDuplicates \
              -I {input.cram} \
              -O {output.cram} \
+             -R {input.reference} \
              --REMOVE_DUPLICATES false \
-             --CREATE_INDEX true \
              --TMP_DIR {params.tmpdir} \
+             --METRICS_FILE {output.metrics} \
              --VALIDATION_STRINGENCY SILENT
+        """
+
+
+rule index_cram:
+    input:
+        cram = "data/cram/{SAMPLE}.dupmarked.cram",
+    output:
+        idx = "data/cram/{SAMPLE}.dupmarked.cram.crai"
+    threads: 8
+    resources:
+        mem_mb = 32_000
+    shell:
+        """
+        module load samtools
+        
+        samtools index -@ {threads} {input.cram}
         """
 

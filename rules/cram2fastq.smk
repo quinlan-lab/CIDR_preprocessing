@@ -1,6 +1,8 @@
 import json
 
-DRAGEN_REF_FH = "/scratch/ucgd/lustre-labs/quinlan/u6070793/hg38.fa"
+
+# we use the DRAGEN REF as the basis for extracting FASTQ for CIDR samples
+DRAGEN_REF_FH = "/scratch/ucgd/lustre-labs/quinlan/u6070793/master_files/hg38.fa"
 
 
 # map sample names to CRAM files

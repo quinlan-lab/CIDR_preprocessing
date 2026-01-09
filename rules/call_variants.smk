@@ -9,10 +9,10 @@ wildcard_constraints:
 
 # map sample names to CRAM files
 SMP2CRAM = {}
-with open("json/cram_mapping.new.json") as f:
+with open("json/cram_mapping.realigned.json") as f:
     dicts = json.load(f)
     for d in dicts:
-        sample = d["sample"]
+        sample = d["ugrp_sample_id"]
         fh = d["cram_fh"]
         SMP2CRAM[sample] = fh
 
@@ -20,10 +20,10 @@ with open("json/cram_mapping.new.json") as f:
 def get_cram_fh(wildcards):
     return SMP2CRAM[wildcards.SAMPLE]
 
-MASTER_PED = "/scratch/ucgd/lustre-labs/quinlan/u0890814/CIDR_4Gen/ped_files/master_ped_all_info.ped"
 
 ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
 
+MASTER_PED = "/scratch/ucgd/lustre-labs/quinlan/u0890814/CIDR_4Gen/ped_files/master_ped_all_info.ped"
 # get sample IDs in new CIDR CEPH cohort
 sample_info = pd.read_csv(
     MASTER_PED,
@@ -31,9 +31,6 @@ sample_info = pd.read_csv(
     dtype={"UGRP_Lab_ID": str, "Gender": str}
 )
 sample_info = sample_info[sample_info["Gender"].isin(["1", "2"])]
-
-cidr = sample_info[sample_info["Sequencing"] == "CIDR-Illumina_short-read"]["UGRP_Lab_ID"].unique()
-
 SMP2SEX = dict(zip(sample_info["UGRP_Lab_ID"], list(map(int, sample_info["Gender"]))))
 
 
@@ -47,7 +44,7 @@ rule call_snvs:
         vcf = "data/vcf/per-sample/{SAMPLE}.{ASSEMBLY}.vcf.gz",
         gvcf = "data/vcf/per-sample/{SAMPLE}.{ASSEMBLY}.g.vcf.gz",
     params:
-        haploid_contigs_arg = lambda wildcards: "--haploid_contigs chrX,chrY" if SMP2SEX[wildcards.SAMPLE] == 1 else ""
+        haploid_contigs_arg = lambda wildcards: "--haploid-contigs chrX,chrY" if SMP2SEX[wildcards.SAMPLE] == 1 else ""
     resources:
         mem_mb = 64_000,
         runtime = 60,
