@@ -8,13 +8,8 @@ retries: 0
 executor: slurm
 jobs: 96
 
-# resources:
-#   threads: 32
-#   mem_mb: 64000
-#   disk_mb: 32000
-
 default-resources:
-  slurm_account: "ucgd-rw"
-  slurm_partition: "ucgd-shared-rw"
+  slurm_account: "quinlan-rw"
+  slurm_partition: "quinlan-shared-rw"
   runtime: 720
-  mem_mb: 8000
+  mem_mb: 16000
