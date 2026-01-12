@@ -41,6 +41,27 @@ rule fastq2bam:
         """
 
 
+# rule fastq2bam_parabricks:
+#     input:
+#         reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
+#         fq1 = "data/fastq/{SAMPLE}.1.fastq.gz",
+#         fq2 = "data/fastq/{SAMPLE}.2.fastq.gz",
+#         sif = "clara-parabricks_4.6.0-1.sif",
+#     output:
+#         bam = "data/bam/{SAMPLE}.rg.sorted.bam",
+#     resources:
+#         mem_mb = 64_000,
+#         runtime = 60,
+#         gpu = 1,
+#         cpus_per_gpu = 64,
+#         slurm_account = "quinlan-gpu-rw",
+#         slurm_partition = "quinlan-gpu-rw",
+#         slurm_extra = "--exclusive"
+#     script:
+#         "bash_scripts/run_fq2bam_parabricks.sh"
+
+
+
 rule add_read_groups:
     input:
         bam = "data/bam/{SAMPLE}.bam"

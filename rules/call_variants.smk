@@ -49,7 +49,7 @@ rule call_snvs:
         mem_mb = 64_000,
         runtime = 60,
         gpu = 1,
-        cpus_per_gpu = 48,
+        cpus_per_gpu = 64,
         slurm_account = "quinlan-gpu-rw",
         slurm_partition = "quinlan-gpu-rw",
         slurm_extra = "--exclusive"
