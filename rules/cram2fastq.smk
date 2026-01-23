@@ -6,17 +6,17 @@ DRAGEN_REF_FH = "/scratch/ucgd/lustre-labs/quinlan/u6070793/master_files/hg38.fa
 
 
 # map sample names to CRAM files
-SMP2CRAM = {}
-with open("json/cram_mapping.json") as f:
+SMP2CRAM_ORIG = {}
+with open("/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/json/cram_mapping.json") as f:
     dicts = json.load(f)
     for d in dicts:
         sample = d["sample"]
         fh = d["cram_fh"]
-        SMP2CRAM[sample] = fh
+        SMP2CRAM_ORIG[sample] = fh
 
 
 def get_cram_fh(wildcards):
-    return SMP2CRAM[wildcards.SAMPLE]
+    return SMP2CRAM_ORIG[wildcards.SAMPLE]
 
 
 rule namesort_cram:

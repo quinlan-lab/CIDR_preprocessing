@@ -20,5 +20,5 @@ singularity exec --cleanenv \
             --in-bam ${snakemake_input[cram]} \
             --out-variants ${snakemake_output[gvcf]} \
             --ref ${snakemake_input[ref]} \
-            --num-cpu-threads-per-stream 2 \
+            --tmp-dir $SINGULARITYENV_TMPDIR \
             ${snakemake_params[haploid_contigs_arg]}

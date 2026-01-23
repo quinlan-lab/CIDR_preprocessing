@@ -3,7 +3,7 @@ set -e
 
 module load singularity
 
-export SINGULARITYENV_TMPDIR=/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/deep_variant_tmp/
+export SINGULARITYENV_TMPDIR=/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/deep_variant_tmp_2/
 
 singularity exec --cleanenv \
         -H $SINGULARITYENV_TMPDIR \
@@ -19,4 +19,3 @@ singularity exec --cleanenv \
                 --ref ${snakemake_input[ref]} \
                 --regions ${snakemake_wildcards[CHROM]} \
                 ${snakemake_params[haploid_contigs_arg]}
-                # --make_examples_extra_args "select_variant_types='snps',min_mapping_quality=1"

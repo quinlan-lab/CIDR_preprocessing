@@ -8,15 +8,12 @@ wildcard_constraints:
     SAMPLE = r"[0-9]{4,7}"
 
 
-quinlan_chroms = [f"chr{c}" for c in range(1, 12)]
-ucgd_chroms = [f"chr{c}" for c in range(12, 23)] + ["chrX", "chrY"]
 
+gpu_chroms = [f"chr{c}" for c in range(1, 6)]
+cpu_chroms = [f"chr{c}" for c in range(6, 23)] + ["chrX", "chrY"]
 
-gpu_chroms = [f"chr{c}" for c in range(1, 12)]
-cpu_chroms = [f"chr{c}" for c in range(12, 23)] + ["chrX", "chrY"]
-
-quinlan_chroms = cpu_chroms[:6]
-ucgd_chroms = cpu_chroms[6:]
+quinlan_chroms = cpu_chroms[:8]
+ucgd_chroms = cpu_chroms[8:]
 
 # map sample names to CRAM files
 smp2cram = {}
@@ -118,7 +115,7 @@ rule call_snvs_cpu_gpu:
         cpus_per_gpu = lambda wildcards: 64 if wildcards.CHROM in gpu_chroms else None,
         slurm_account = lambda wildcards: "ucgd-rw" if wildcards.CHROM in ucgd_chroms else "quinlan-rw" if wildcards.CHROM in quinlan_chroms else "quinlan-gpu-rw",
         slurm_partition = lambda wildcards: "ucgd-rw" if wildcards.CHROM in ucgd_chroms else "quinlan-rw" if wildcards.CHROM in quinlan_chroms else "quinlan-gpu-rw",
-        slurm_extra = lambda wildcards: "--exclusive" if wildcards.CHROM in gpu_chroms else None
+        slurm_extra = lambda wildcards: "--exclusive" if wildcards.CHROM in gpu_chroms else "--exclude=rw159"
     threads: 16
     script:
         "bash_scripts/run_deepvariant_cpu_gpu.sh"

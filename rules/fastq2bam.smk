@@ -5,7 +5,7 @@ import glob
 
 # we re-align CIDR to the HG38 version used for the ELIFE samples
 ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
-
+# PREF = "/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH"
 
 rule index_ref:
     input:

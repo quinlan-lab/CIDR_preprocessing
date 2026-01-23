@@ -24,6 +24,7 @@ if [ "$gpu" -eq "1" ]; then
                 --ref ${snakemake_input[ref]} \
                 --tmp-dir $SINGULARITYENV_TMPDIR \
                 -L ${snakemake_wildcards[CHROM]} \
+                --num-cpu-threads-per-stream 2 \
                 ${snakemake_params[haploid_contigs_arg]}
 else
 
