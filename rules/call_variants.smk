@@ -8,7 +8,8 @@ wildcard_constraints:
     SAMPLE = r"[0-9]{4,7}"
 
 
-
+# NOTE: this is super hacky! divide up chromosomes and process
+# different batches of chroms on different SLURM accts/partitions.
 gpu_chroms = [f"chr{c}" for c in range(1, 6)]
 cpu_chroms = [f"chr{c}" for c in range(6, 23)] + ["chrX", "chrY"]
 
@@ -24,14 +25,17 @@ with open("/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/jso
         fh = d["cram_fh"]
         smp2cram[sample] = fh
 
+
 def get_cram_fh(wildcards):
     return smp2cram[wildcards.SAMPLE]
 def get_cram_idx_fh(wildcards):
     return smp2cram[wildcards.SAMPLE] + ".crai"
 
+
 ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
 
 MASTER_PED = "/scratch/ucgd/lustre-labs/quinlan/u0890814/CIDR_4Gen/ped_files/master_ped_all_info.ped"
+
 # get sample IDs in new CIDR CEPH cohort
 sample_info = pd.read_csv(
     MASTER_PED,
@@ -42,7 +46,7 @@ sample_info = sample_info[sample_info["Gender"].isin(["1", "2"])]
 SMP2SEX = dict(zip(sample_info["UGRP_Lab_ID"], list(map(int, sample_info["Gender"]))))
 
 
-# rule call_snvs_parabricks:
+# rule call_snvs_gpu:
 #     input:
 #         ref = ELIFE_REF_FH,
 #         cram = get_cram_fh,
@@ -96,6 +100,10 @@ def get_haploid_contigs_arg(wildcards, cpu_chroms):
         else:
             return "--haploid-contigs chrX,chrY"
 
+
+# NOTE: this rule supersedes above two rules -- bash script contains
+# logic for running DV on either CPU or GPU, depending on the chrom
+# we're processing.
 rule call_snvs_cpu_gpu:
     input:
         ref = ELIFE_REF_FH,
@@ -119,19 +127,5 @@ rule call_snvs_cpu_gpu:
     threads: 16
     script:
         "bash_scripts/run_deepvariant_cpu_gpu.sh"
-
-# rule merge_chrom_vcfs:
-#     input:
-#         gvcfs = expand("data/vcf/per-chrom/{{SAMPLE}}.{{ASSEMBLY}}.{CHROM}.g.vcf.gz", CHROM=CHROMS)
-#     output: "data/vcf/per-sample/{SAMPLE}.{ASSEMBLY}.vcf.gz"
-#     threads: 16
-#     resources:
-#         runtime = 1440
-#     shell:
-#         """
-#         module load bcftools
-        
-#         bcftools concat {input.gvcfs} | bcftools view --threads {threads} | bgzip > {output}
-#         """
 
 

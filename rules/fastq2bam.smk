@@ -5,7 +5,7 @@ import glob
 
 # we re-align CIDR to the HG38 version used for the ELIFE samples
 ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
-# PREF = "/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH"
+
 
 rule index_ref:
     input:
@@ -41,6 +41,8 @@ rule fastq2bam:
         """
 
 
+# NOTE: we can potentially use parabricks for alignment for a massive speedup.
+# NOTE: parabricks will also markdups and sort in one go.
 # rule fastq2bam_parabricks:
 #     input:
 #         reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
@@ -140,7 +142,7 @@ rule convert_to_cram:
                       {input.bam}
         """
 
-# NOTE: this removes the embedded reference!
+# NOTE: careful, this removes the embedded reference!
 rule mark_duplicates:
     input:
         cram = "data/cram/{SAMPLE}.cram",

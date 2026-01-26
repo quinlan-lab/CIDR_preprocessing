@@ -1,11 +1,9 @@
 #!/bin/bash
 set -e
 
-n=${snakemake_params[n_input_files]}
-echo ${snakemake_params[n_input_files]}
-echo $n
-echo ${snakemake_params[fastq1_list]}
-if [ "$n" -eq "1" ]; then
+n_ora=${snakemake_params[n_input_files]}
+
+if [ "$n_ora" -eq "1" ]; then
     echo "yes"
     mv ${snakemake_params[fastq1_list]:0} ${snakemake_output[fq1]}
     mv ${snakemake_params[fastq2_list]:0} ${snakemake_output[fq2]}
