@@ -65,20 +65,11 @@ wildcard_constraints:
     SAMPLE = r"[0-9]{4,7}"
 
 
-MASTER_PED = "/scratch/ucgd/lustre-labs/quinlan/u0890814/CIDR_4Gen/ped_files/master_ped_all_info.ped"
-
-# get sample IDs in new CIDR CEPH cohort
-sample_info = pd.read_csv(
-    MASTER_PED,
-    sep="\t",
-    dtype={"UGRP_Lab_ID": str}
-)
-
 cidr = sample_info[sample_info["Sequencing"].isin(["CIDR-Illumina_short-read", "CIDR-Illumina_short-read_top-up"])]["UGRP_Lab_ID"].to_list()
 elife = sample_info[sample_info["Sequencing"] == "WashU-Illumina_short-read"]["UGRP_Lab_ID"].to_list()
 scott = sample_info[sample_info["Sequencing"] == "2025UofU"]["UGRP_Lab_ID"].to_list()
 
-scott = scott + ["300010", "200093", "200112", "200138"]
+scott = scott + ["200093", "200112", "200138"]
 scott = [s for s in scott if s not in ("210071", "130053", "300010")] # no sex for 210071
 
 
