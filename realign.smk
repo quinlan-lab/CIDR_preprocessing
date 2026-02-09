@@ -1,9 +1,63 @@
+import json
+import pandas as pd
+
+CHROMS = [f"chr{c}" for c in range(1, 23)] + ["chrX", "chrY"]
+gpu_chroms = CHROMS[:2]
+cpu_chroms = CHROMS[2:]
+quinlan_chroms = cpu_chroms[10:]
+ucgd_chroms = cpu_chroms[:10]
+
+# we use the DRAGEN REF as the basis for extracting FASTQ for CIDR samples
+DRAGEN_REF_FH = "/scratch/ucgd/lustre-labs/quinlan/u6070793/master_files/hg38.fa"
+# we re-align CIDR to the HG38 version used for the ELIFE samples
+ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
+
+# map sample names to original CRAM files, from which we will
+# extract FASTQ if necessary
+SMP2CRAM_ORIG = {}
+with open("json/cram_mapping.json") as f:
+    dicts = json.load(f)
+    for d in dicts:
+        sample = d["sample"]
+        fh = d["cram_fh"]
+        SMP2CRAM_ORIG[sample] = fh
+
+def get_orig_cram_fh(wildcards):
+    return SMP2CRAM_ORIG[wildcards.SAMPLE]
+
+# map sample names to new CRAM file handles after realignment, which 
+# we'll use to call variants
+SMP2CRAM_NEW = {}
+with open("/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/json/cram_mapping.realigned.json") as f:
+    dicts = json.load(f)
+    for d in dicts:
+        sample = d["ugrp_sample_id"]
+        fh = d["cram_fh"]
+        SMP2CRAM_NEW[sample] = fh
+
+
+def get_new_cram_fh(wildcards):
+    return SMP2CRAM_NEW[wildcards.SAMPLE]
+
+def get_new_cram_idx_fh(wildcards):
+    return SMP2CRAM_NEW[wildcards.SAMPLE] + ".crai"
+
+
+MASTER_PED = "/scratch/ucgd/lustre-labs/quinlan/u0890814/CIDR_4Gen/ped_files/master_ped_all_info.ped"
+# get sample IDs in new CIDR CEPH cohort
+sample_info = pd.read_csv(
+    MASTER_PED,
+    sep="\t",
+    dtype={"UGRP_Lab_ID": str, "Gender": str}
+)
+sample_info = sample_info[sample_info["Gender"].isin(["1", "2"])]
+SMP2SEX = dict(zip(sample_info["UGRP_Lab_ID"], list(map(int, sample_info["Gender"]))))
+
+
 include: "rules/call_variants.smk"
 include: "rules/cram2fastq.smk"
 include: "rules/fastq2bam.smk"
 
-import json
-import pandas as pd
 
 wildcard_constraints:
     ASSEMBLY = "GRCh38",
@@ -22,29 +76,24 @@ sample_info = pd.read_csv(
 
 cidr = sample_info[sample_info["Sequencing"].isin(["CIDR-Illumina_short-read", "CIDR-Illumina_short-read_top-up"])]["UGRP_Lab_ID"].to_list()
 elife = sample_info[sample_info["Sequencing"] == "WashU-Illumina_short-read"]["UGRP_Lab_ID"].to_list()
+scott = sample_info[sample_info["Sequencing"] == "2025UofU"]["UGRP_Lab_ID"].to_list()
 
-# cidr_dads = cidr["Father"].to_list()
-# cidr_moms = cidr["Mother"].to_list()
-# cidr_kids = cidr["UGRP_Lab_ID"].to_list()
+scott = scott + ["300010", "200093", "200112", "200138"]
+scott = [s for s in scott if s not in ("210071", "130053", "300010")] # no sex for 210071
 
-# samples = cidr_dads + cidr_moms + cidr_kids
-# print (len(set(cidr_kids)))
-# cidr_kids = ["200092"]
-
-CHROMS = [f"chr{c}" for c in range(1, 23)] + ["chrX", "chrY"]
 
 rule all:
     input:
-        expand("data/vcf/joint_genotyped/{ASSEMBLY}.{CHROM}.joint_genotyped.vcf.gz", ASSEMBLY=["GRCh38"], CHROM=CHROMS)
-        # expand("data/vcf/per-sample/{SAMPLE}.GRCh38.g.vcf.gz", SAMPLE = list(set(cidr_kids))[:10]),
-        # expand("data/cram/{SAMPLE}.dupmarked.cram.crai", SAMPLE = cidr)
+        # expand("data/vcf/joint_genotyped/{ASSEMBLY}.{CHROM}.joint_genotyped.bcf", ASSEMBLY=["GRCh38"], CHROM=CHROMS)
+        expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = scott, CHROM=CHROMS),
+        # expand("data/cram/{SAMPLE}.dupmarked.cram.crai", SAMPLE = scott)
 
 
 rule joint_genotype:
     input:
         sif = "glnexus_v1.2.7.sif",
         gvcfs = expand("data/vcf/per-chrom/{SAMPLE}.{{ASSEMBLY}}.{{CHROM}}.g.vcf.gz", SAMPLE=list(set(cidr + elife))),
-    output: "data/vcf/joint_genotyped/{ASSEMBLY}.{CHROM}.joint_genotyped.vcf.gz"
+    output: "data/vcf/joint_genotyped/{ASSEMBLY}.{CHROM}.joint_genotyped.bcf"
     threads: 16
     params:
         gl_nexus_prefix = lambda wildcards: f"gl_nexus_dbs/{wildcards.ASSEMBLY}_{wildcards.CHROM}"
@@ -52,25 +101,3 @@ rule joint_genotype:
         mem_mb = 64_000
     script:
         "rules/bash_scripts/joint_genotype.sh"
-
-
-# rule merge_trio_vcfs:
-#     input:
-#         vcfs = expand("data/vcf/per-chrom/{{ASSEMBLY}}.{CHROM}.joint_genotyped.vcf.gz", CHROM=CHROMS)
-#     output: "data/vcf/merged/{ASSEMBLY}.joint_genotyped.vcf.gz"
-#     threads: 16
-#     resources:
-#         runtime = 1440
-#     shell:
-#         """
-#         module load bcftools
-        
-#         bcftools concat {input.vcfs} | bcftools view --threads {threads} | bgzip > {output}
-#         """
-
-
-# rule index_merged_vcf:
-#     input: vcf = "data/vcf/merged/{ASSEMBLY}.joint_genotyped.vcf.gz"
-#     output: "data/vcf/merged/{ASSEMBLY}.joint_genotyped.vcf.gz.tbi"
-#     script:
-#         "bash_scripts/index_vcf.sh"

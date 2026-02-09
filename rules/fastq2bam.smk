@@ -1,12 +1,3 @@
-import pandas as pd
-from collections import defaultdict
-import glob 
-
-
-# we re-align CIDR to the HG38 version used for the ELIFE samples
-ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
-
-
 rule index_ref:
     input:
         reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
@@ -45,12 +36,12 @@ rule fastq2bam:
 # NOTE: parabricks will also markdups and sort in one go.
 # rule fastq2bam_parabricks:
 #     input:
-#         reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
+#         reference = ELIFE_REF_FH,
 #         fq1 = "data/fastq/{SAMPLE}.1.fastq.gz",
 #         fq2 = "data/fastq/{SAMPLE}.2.fastq.gz",
 #         sif = "clara-parabricks_4.6.0-1.sif",
 #     output:
-#         bam = "data/bam/{SAMPLE}.rg.sorted.bam",
+#         bam = temp("data/bam/{SAMPLE}.rg.sorted.bam"),
 #     resources:
 #         mem_mb = 64_000,
 #         runtime = 60,
@@ -61,7 +52,6 @@ rule fastq2bam:
 #         slurm_extra = "--exclusive"
 #     script:
 #         "bash_scripts/run_fq2bam_parabricks.sh"
-
 
 
 rule add_read_groups:
@@ -126,7 +116,7 @@ rule index_bam:
 rule convert_to_cram:
     input:
         bam = "data/bam/{SAMPLE}.rg.sorted.bam",
-        reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
+        reference = ELIFE_REF_FH,
     output:
         cram = temp("data/cram/{SAMPLE}.cram")
     threads: 8
