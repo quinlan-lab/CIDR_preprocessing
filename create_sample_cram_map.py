@@ -13,10 +13,7 @@ SAMPLE_INFO = pd.read_csv(
     sep="\t",
     dtype={"UGRP_Lab_ID": str, "Gender": str}
 )
-SAMPLE_INFO = SAMPLE_INFO[SAMPLE_INFO["sequencing_available"] == "yes"]
-print (SAMPLE_INFO.shape)
 
-# print (SAMPLE_INFO[SAMPLE_INFO["UGRP_Lab_ID"] == "200095"][["Sequencing"]])
 
 # read in sample information for the original CIDR bolus
 CIDR_ORIG_INFO = (
@@ -25,7 +22,9 @@ CIDR_ORIG_INFO = (
         sheet_name="Sheet0",
     ).dropna()
 )[["Subject_ID", "Individual"]].rename(columns={"Subject_ID": "SUBJECT_ID"})
+
 CIDR_ORIG_INFO["SUBJECT_ID"] = CIDR_ORIG_INFO["SUBJECT_ID"].astype(int).astype(str)
+
 # read in mapping for original CIDR
 CIDR_ORIG_MAP = pd.read_csv(
     "Quinlan_Released_Data/Sample_Info/SubjectSampleMappingFile_QuinlanNeklason.csv",
@@ -38,6 +37,9 @@ CIDR_ORIG_INFO = CIDR_ORIG_INFO.merge(CIDR_ORIG_MAP, how="outer").rename(
         "SAMPLE_ID": "prefix",
     }
 )
+CIDR_ORIG_INFO = CIDR_ORIG_INFO.dropna(subset=["prefix"])
+
+CIDR_ORIG_INFO["provenance"] = "CIDR_rd1"
 
 # read in sample information for the topped-up CIDR bolus
 CIDR_TOPUP_INFO = pd.read_csv(
@@ -48,6 +50,7 @@ CIDR_TOPUP_INFO = pd.read_csv(
         "Subject_ID",
         "wants more seq",
         "sample_id",
+        "PICARD_average_alignment_coverage_over_genome",
     ]
 ].rename(
     columns={
@@ -56,15 +59,11 @@ CIDR_TOPUP_INFO = pd.read_csv(
         "sample_id": "prefix",
     }
 )
+# remove samples that didn't produce sequencing data
+CIDR_TOPUP_INFO = CIDR_TOPUP_INFO[CIDR_TOPUP_INFO["PICARD_average_alignment_coverage_over_genome"] != "Library attempted but no sequence data generated"]
 
-# merge the original CIDR bolus with the topped-up CIDR bolus so we know who was topped up
-CIDR_MERGED = CIDR_ORIG_INFO.merge(CIDR_TOPUP_INFO, how="left").fillna("no")
-CIDR_MERGED.replace(to_replace={"wants more seq": "yes", "no": "NA"}, inplace=True)
+CIDR_TOPUP_INFO["provenance"] = "CIDR_rd2"
 
-# NOTE: six of the samples in the CIDR topup bolus had no sequence data generated
-# for sample in CIDR_MERGED.query("topped_up == 'yes'")["topup_prefix"].unique():
-#     if not os.path.exists(f"dataset_to_PI_release2/CRAM/{sample}.cram"):
-#         print (sample, CIDR_MERGED[CIDR_MERGED["topup_prefix"] == sample])
 
 # read in Deb's bolus of sequencing metadata
 DEB_INFO = pd.read_excel(
@@ -72,6 +71,8 @@ DEB_INFO = pd.read_excel(
     sheet_name="2025-08-29 CEPH REsequence list",
     dtype={"LABID": str},
 )[["LABID"]].rename(columns={"LABID": "UGRP_Lab_ID"})
+
+DEB_INFO["provenance"] = "UofU_rd2"
 
 # read in scott's bolus of sequencing metadata
 WATKINS_INFO = pd.read_excel(
@@ -86,99 +87,115 @@ WATKINS_INFO = pd.read_excel(
 )[
     ["UGRP_Lab_ID", "topup_prefix"]
 ]
+WATKINS_INFO["provenance"] = "UofU_rd1"
+
 
 ELIFE_INFO = SAMPLE_INFO[SAMPLE_INFO["Sequencing"] == "WashU-Illumina_short-read"][["UGRP_Lab_ID"]]
+ELIFE_INFO["provenance"] = "eLife"
 
-# for every sample in the master ped, figure out whether we sequenced it in
-# a) the original eLife
-# b) the first CIDR bolus
-# c) the second CIDR bolus
-# d) scott's bolus
-# e) deb's bolus
-# then, figure out which CRAM file already exists for this sample (if any) and
-# whether we need to realign it.
+merged = pd.concat([CIDR_ORIG_INFO, CIDR_TOPUP_INFO, DEB_INFO, WATKINS_INFO, ELIFE_INFO])
+prov = merged.groupby("UGRP_Lab_ID").agg(sequencing_provenance = ("provenance", lambda p: ",".join(p)), n_prov = ("provenance", lambda p: len(p))).reset_index()
+print (prov.groupby("sequencing_provenance").size())
+prov.query("sequencing_provenance == 'CIDR_rd1,CIDR_rd2,UofU_rd2' or sequencing_provenance == 'CIDR_rd1,CIDR_rd2,UofU_rd1'")[["UGRP_Lab_ID", "sequencing_provenance"]].to_csv("a.tsv", sep="\t", index=False)
+prov.groupby("sequencing_provenance").size().reset_index().rename(columns={0: "count"}).sort_values("count", ascending=False).to_csv("a.tsv", sep="\t", index=False)
+print (prov.shape)
+# # for every sample in the master ped, figure out whether we sequenced it in
+# # a) the original eLife
+# # b) the first CIDR bolus
+# # c) the second CIDR bolus
+# # d) scott's bolus
+# # e) deb's bolus
+# # then, figure out which CRAM file already exists for this sample (if any) and
+# # whether we need to realign it.
+# res = []
+# for i, row in SAMPLE_INFO.iterrows():
+#     sample_id = row["UGRP_Lab_ID"]
 
-res = []
-for i, row in SAMPLE_INFO.iterrows():
-    sample_id = row["UGRP_Lab_ID"]
+#     # figure out the membership of this sample in each bolus
+#     in_cidr = sample_id in CIDR_MERGED["UGRP_Lab_ID"].to_list()
+#     in_elife = sample_id in ELIFE_INFO["UGRP_Lab_ID"].to_list()
+#     in_deb = sample_id in DEB_INFO["UGRP_Lab_ID"].to_list()
+#     in_scott = sample_id in WATKINS_INFO["UGRP_Lab_ID"].to_list()
+    
+#     # how many sequencing runs was this sample in?
+#     overlap = in_cidr + in_elife + in_deb + in_scott
+#     if overlap == 0: continue
+#     # assert 1 <= overlap <= 2
 
-    # figure out the membership of this sample in each bolus
-    in_cidr = sample_id in CIDR_MERGED["UGRP_Lab_ID"].to_list()
-    in_elife = sample_id in ELIFE_INFO["UGRP_Lab_ID"].to_list()
-    in_deb = sample_id in DEB_INFO["UGRP_Lab_ID"].to_list()
-    in_scott = sample_id in WATKINS_INFO["UGRP_Lab_ID"].to_list()
+#     # if this sample is only seen in one dataset, it's relatively easy to determine what
+#     # the "final" CRAM path should be. we always realign w/r/t the original eLife samples,
+#     # so if this sample is only present in the original eLife dataset, we'll just use their
+#     # original CRAM
+#     if overlap == 1:
+#         if in_elife:
+#             final_cram_path = f"/scratch/ucgd/lustre-labs/quinlan/data-shared/datasets/CEPH/cram/{sample_id}.cram"
+#             realign = False
+#             fastq_path = ""
+#             orig_cram_path = ""
+#         elif in_cidr:
+#             final_cram_path = f"{PREF}/data/cram/{sample_id}.dupmarked.cram"
+#             realign = True
+#             fastq_path = f"{PREF}/data/fastq/{sample_id}.1.fastq.gz,{PREF}/data/fastq/{sample_id}.2.fastq.gz"
 
-    # how many sequencing runs was this sample in?
-    overlap = in_cidr + in_elife + in_deb + in_scott
-    assert 1 <= overlap <= 2
+#             cidr_entry = CIDR_MERGED[CIDR_MERGED["UGRP_Lab_ID"] == sample_id]            
+#             prefixes = cidr_entry["prefix"].to_list()
+#             topped_up = cidr_entry["topped_up"].to_list()
+#             if sample_id in ("300100", "80010"):
+#                 assert len(prefixes) == 2
+#                 prefixes = [sample_id]
+#                 print (prefixes)
+#             assert len(set(topped_up)) == 1
+#             if prefixes[0] == "NA":
+#                 continue
+#             if topped_up[0] == "yes":
+#                 orig_cram_path = ",".join([f"{PREF}/dataset_to_PI_release2/CRAM/{prefix}.cram" for prefix in prefixes])
+#             else:
+#                 orig_cram_path = ",".join([f"{PREF}/Quinlan_Released_Data/CRAM/{prefix}.cram" for prefix in prefixes])
 
-    # if this sample is only seen in one dataset, it's relatively easy to determine what
-    # the "final" CRAM path should be. we always realign w/r/t the original eLife samples,
-    # so if this sample is only present in the original eLife dataset, we'll just use their
-    # original CRAM
-    if overlap == 1:
-        if in_elife:
-            final_cram_path = f"/scratch/ucgd/lustre-labs/quinlan/data-shared/datasets/CEPH/cram/{sample_id}.cram"
-            realign = False
-            fastq_path = ""
-            orig_cram_path = ""
-        elif in_cidr:
-            final_cram_path = f"{PREF}/data/cram/{sample_id}.dupmarked.cram"
-            realign = True
-            fastq_path = f"{PREF}/data/fastq/{sample_id}.1.fastq.gz,{PREF}/data/fastq/{sample_id}.2.fastq.gz"
+            
+#         else:
+#             final_cram_path = f"{PREF}/data/cram/{sample_id}.dupmarked.cram"
+#             realign = True
+#             fastq_path = f"{PREF}/data/fastq/{sample_id}.1.fastq.gz,{PREF}/data/fastq/{sample_id}.2.fastq.gz"
+#             orig_cram_path = ""
 
-            cidr_entry = CIDR_MERGED[CIDR_MERGED["UGRP_Lab_ID"] == sample_id]            
-            prefixes = cidr_entry["prefix"].to_list()
-            topped_up = cidr_entry["topped_up"].to_list()
-            if sample_id in ("300100", "80010"):
-                assert len(prefixes) == 2
-                prefixes = [sample_id]
-            assert len(set(topped_up)) == 1
-            if topped_up.pop() == "yes":
-                orig_cram_path = ",".join([f"{PREF}/dataset_to_PI_release2/CRAM/{prefix}.cram" for prefix in prefixes])
-            else:
-                orig_cram_path = ",".join([f"{PREF}/Quinlan_Released_Data/CRAM/{prefix}.cram" for prefix in prefixes])
-        else:
-            final_cram_path = f"{PREF}/data/cram/{sample_id}.dupmarked.cram"
-            realign = True
-            fastq_path = f"{PREF}/data/fastq/{sample_id}.1.fastq.gz,{PREF}/data/fastq/{sample_id}.2.fastq.gz"
-            orig_cram_path = ""
+#     else:
+#         orig_cram_path = ""
+#         if in_elife:
+#             orig_cram_path = f"/scratch/ucgd/lustre-labs/quinlan/data-shared/datasets/CEPH/cram/{sample_id}.cram"
+#         elif in_cidr:
+#             cidr_entry = CIDR_MERGED[CIDR_MERGED["UGRP_Lab_ID"] == sample_id]
+#             prefixes = cidr_entry["prefix"].to_list()
+#             topped_up = cidr_entry["topped_up"].to_list()
+#             assert len(set(topped_up)) == 1
+#             if topped_up[0] == "yes":
+#                 orig_cram_path = ",".join([f"{PREF}/dataset_to_PI_release2/CRAM/{prefix}.cram" for prefix in prefixes])
+#             else:
+#                 orig_cram_path = ""
+#         final_cram_path = f"{PREF}/data/cram/{sample_id}.dupmarked.cram"
+#         realign = True
+#         fastq_path = f"{PREF}/data/fastq/{sample_id}.1.fastq.gz,{PREF}/data/fastq/{sample_id}.2.fastq.gz"
 
-    else:
-        orig_cram_path = ""
-        if in_elife:
-            orig_cram_path = f"/scratch/ucgd/lustre-labs/quinlan/data-shared/datasets/CEPH/cram/{sample_id}.cram"
-        elif in_cidr:
-            cidr_entry = CIDR_MERGED[CIDR_MERGED["UGRP_Lab_ID"] == sample_id]
-            prefixes = cidr_entry["prefix"].to_list()
-            topped_up = cidr_entry["topped_up"].to_list()
-            assert len(set(topped_up)) == 1
-            if topped_up.pop() == "yes":
-                orig_cram_path = ",".join([f"{PREF}/dataset_to_PI_release2/CRAM/{prefix}.cram" for prefix in prefixes])
-            else:
-                orig_cram_path = ""
-        final_cram_path = f"{PREF}/data/cram/{sample_id}.dupmarked.cram"
-        realign = True
-        fastq_path = f"{PREF}/data/fastq/{sample_id}.1.fastq.gz,{PREF}/data/fastq/{sample_id}.2.fastq.gz"
+#     res.append({
+#         "UGRP_Lab_ID": sample_id,
+#         "REALIGN": realign,
+#         "in_elife": in_elife,
+#         "in_cidr": in_cidr,
+#         "in_gnomex": in_deb,
+#         "in_watkins": in_scott,
+#         "final_cram_path": final_cram_path,
+#         "orig_cram_path": orig_cram_path,
+#         "fastq_paths": fastq_path,
+#     })
 
-    res.append({
-        "UGRP_Lab_ID": sample_id,
-        "REALIGN": realign,
-        "in_elife": in_elife,
-        "in_cidr": in_cidr,
-        "in_gnomex": in_deb,
-        "in_watkins": in_scott,
-        "final_cram_path": final_cram_path,
-        "orig_cram_path": orig_cram_path,
-        "fastq_paths": fastq_path,
-    })
+# res_df = pd.DataFrame(res).replace({"": "UNK"})
 
-res_df = pd.DataFrame(res).replace({"": "NA"})
+# to_realign = res_df[res_df["REALIGN"] == True]
 
-to_realign = res_df[res_df["REALIGN"] == True]
-# make sure that samples in two datasets have an original cram path
-# print (to_realign.query("overlap == 2 and orig_cram_path == 'NA'"))
-res_df.to_csv("o.tsv", sep="\t", index=False)
+# print (res_df[res_df["REALIGN"] == False])
+# # make sure that samples in two datasets have an original cram path
+# # print (to_realign.query("overlap == 2 and orig_cram_path == 'NA'"))
+# res_df.to_csv("o.tsv", sep="\t", index=False)
 # # what about the "original" CRAM paths from which we'll extract FASTQ?
 # if overlap == 1 and in_elife:
 
