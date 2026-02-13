@@ -95,10 +95,38 @@ ELIFE_INFO["provenance"] = "eLife"
 
 merged = pd.concat([CIDR_ORIG_INFO, CIDR_TOPUP_INFO, DEB_INFO, WATKINS_INFO, ELIFE_INFO])
 prov = merged.groupby("UGRP_Lab_ID").agg(sequencing_provenance = ("provenance", lambda p: ",".join(p)), n_prov = ("provenance", lambda p: len(p))).reset_index()
-print (prov.groupby("sequencing_provenance").size())
 prov.query("sequencing_provenance == 'CIDR_rd1,CIDR_rd2,UofU_rd2' or sequencing_provenance == 'CIDR_rd1,CIDR_rd2,UofU_rd1'")[["UGRP_Lab_ID", "sequencing_provenance"]].to_csv("a.tsv", sep="\t", index=False)
 prov.groupby("sequencing_provenance").size().reset_index().rename(columns={0: "count"}).sort_values("count", ascending=False).to_csv("a.tsv", sep="\t", index=False)
-print (prov.shape)
+
+prov.to_csv("PROVENANCE.tsv", sep="\t", index=False)
+
+
+res = []
+missing = []
+for sample, sample_df in merged.groupby("UGRP_Lab_ID"):
+    provenance = sample_df["provenance"].to_list()
+    if len(provenance) > 2:
+        missing.append({"ugrp_sample_id": sample, "provenance": ",".join(provenance)})
+        continue
+
+    if provenance == ["eLife"]:
+        cram_path = f"/scratch/ucgd/lustre-labs/quinlan/data-shared/datasets/CEPH/cram/{sample}.cram"
+    else:
+        cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{sample}.dupmarked.cram"
+    
+    if not os.path.exists(cram_path):
+        missing.append({"ugrp_sample_id": sample, "provenance": ",".join(provenance)})
+    else:
+        res.append({"ugrp_sample_id": sample, "cram_fh": cram_path})
+
+print (len(res))
+print (pd.DataFrame(missing))
+
+with open("json/cram_mapping.realignedd.json", "w") as f:
+    json.dump(res, f, indent=4)
+
+
+
 # # for every sample in the master ped, figure out whether we sequenced it in
 # # a) the original eLife
 # # b) the first CIDR bolus
