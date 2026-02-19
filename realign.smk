@@ -22,23 +22,40 @@ SAMPLE_INFO = pd.read_csv(
 SAMPLE_INFO = SAMPLE_INFO[SAMPLE_INFO["Gender"].isin(["1", "2"])]
 SMP2SEX = dict(zip(SAMPLE_INFO["UGRP_Lab_ID"], list(map(int, SAMPLE_INFO["Gender"]))))
 
-
-def get_new_cram_fh(wildcards):
-    sample_map =  FILE_MAP[FILE_MAP["UGRP_Lab_ID"] == wildcards.SAMPLE]
-    assert sample_map.shape[0] == 1
-    return sample_map["final_cram_path"].to_list().pop()
+SMP2CRAM_ORIG = {}
+with open("json/cram_mapping.to_extract.json") as f:
+    dicts = json.load(f)
+    for d in dicts:
+        sample = d["ugrp_sample_id"]
+        fh = d["cram_fh"]
+        SMP2CRAM_ORIG[sample] = fh
 
 def get_orig_cram_fh(wildcards):
-    sample_map =  FILE_MAP[FILE_MAP["UGRP_Lab_ID"] == wildcards.SAMPLE]
-    assert sample_map.shape[0] == 1
-    return sample_map["orig_cram_path"].to_list().pop()
+    return SMP2CRAM_ORIG[wildcards.SAMPLE]
+
+# map sample names to new CRAM file handles after realignment, which 
+# we'll use to call variants
+SMP2CRAM_NEW = {}
+with open("json/cram_mapping.realigned.json") as f:
+    dicts = json.load(f)
+    for d in dicts:
+        sample = d["ugrp_sample_id"]
+        fh = d["cram_fh"]
+        SMP2CRAM_NEW[sample] = fh
+
+print (SMP2CRAM_NEW["130053"])
+def get_new_cram_fh(wildcards):
+    return SMP2CRAM_NEW[wildcards.SAMPLE]
 
 def get_new_cram_idx_fh(wildcards):
-    return get_new_cram_fh(wildcards) + ".crai"
-    
+    return SMP2CRAM_NEW[wildcards.SAMPLE] + ".crai"
+
 
 include: "rules/call_variants.smk"
-include: "rules/cram2fastq.smk"
+
+### NOTE: comment out this rule if we're running on the "alignment" (rather)
+# than "realignment" samples
+# include: "rules/cram2fastq.smk"
 include: "rules/fastq2bam.smk"
 
 
@@ -48,12 +65,24 @@ wildcard_constraints:
     SAMPLE = r"[0-9]{4,7}"
 
 
-samples = PROVENANCE[PROVENANCE["sequencing_provenance"] == "UofU_rd2,eLife"]["UGRP_Lab_ID"].to_list()
+### NOTE: these are samples for whom we extract FASTQ from CIDR CRAMs and realign. ###
+realignment_provenance = (["CIDR_rd1", "CIDR_rd1,CIDR_rd2"])
+samples_to_realign = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(realignment_provenance))]["UGRP_Lab_ID"].to_list()
+
+### NOTE: these are samples for whom we align FASTQ extracted from ORA files, and treat the ### 
+### resulting alignments as the final CRAMs. ###
+alignment_provenance = (["UofU_rd1", "UofU_rd2,eLife", "UofU_rd2", "CIDR_rd1,UofU_rd2"])
+samples_to_align = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(alignment_provenance))]["UGRP_Lab_ID"].to_list()
+
+# find samples without sex info
+no_sex = [s for s in samples_to_align if s not in SMP2SEX]
+
+samples = [s for s in samples_to_align if s not in no_sex]
 
 rule all:
     input:
-        # expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = ["300100"], CHROM=["chr21"]),
-        expand("data/cram/{SAMPLE}.dupmarked.cram.crai", SAMPLE = samples)
+        expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = samples, CHROM=CHROMS),
+        # expand("data/cram/{SAMPLE}.cram.crai", SAMPLE = ["280013"])
 
 
 # rule joint_genotype:

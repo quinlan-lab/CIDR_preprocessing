@@ -112,7 +112,7 @@ for sample, sample_df in merged.groupby("UGRP_Lab_ID"):
         pass
     # these are "easy" samples for which the final CRAM should already have been processed correctly
     # (by either aligning FASTQ from .ora or by getting FASTQ from an existing CRAM)
-    elif provenance in (["CIDR_rd1"], ["UofU_rd1"], ["CIDR_rd1", "CIDR_rd2"], ["UofU_rd2", "eLife"]):
+    elif provenance in (["CIDR_rd1"], ["UofU_rd1"], ["CIDR_rd1", "CIDR_rd2"], ["UofU_rd2", "eLife"], ["UofU_rd2"], ["CIDR_rd1", "UofU_rd2"]):
         cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{sample}.dupmarked.cram"
     # also easy -- we'll leave these as-is
     elif provenance == ["eLife"]:
@@ -129,7 +129,7 @@ for sample, sample_df in merged.groupby("UGRP_Lab_ID"):
 print (len(res))
 print (pd.DataFrame(missing))
 
-with open("json/cram_mapping.realignedd.json", "w") as f:
+with open("json/cram_mapping.realigned.json", "w") as f:
     json.dump(res, f, indent=4)
 
 res = []
@@ -160,7 +160,7 @@ for sample, sample_df in merged.groupby("UGRP_Lab_ID"):
 print (len(res))
 print (pd.DataFrame(missing))
 
-with open("json/cram_mapping.origg.json", "w") as f:
+with open("json/cram_mapping.to_extract.json", "w") as f:
     json.dump(res, f, indent=4)
 
 
