@@ -112,13 +112,43 @@ rule index_bam:
         {input.sambamba_binary} index -t {threads} {input.bam}
         """ 
 
+
+# NOTE: careful, this removes the embedded reference!
+rule mark_duplicates:
+    input:
+        bam = "data/bam/{SAMPLE}.rg.sorted.bam",
+        reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
+    output:
+        bam = "data/bam/{SAMPLE}.dupmarked.bam",
+        metrics = "data/markdup_metrics/{SAMPLE}.metrics.txt"
+    params:
+        tmpdir = "/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/"
+    resources:
+        mem_mb = 64_000,
+        runtime = 1_080
+    shell:
+        """
+        module load gatk/4.6
+
+        gatk --java-options "-Xmx48g" \
+             MarkDuplicates \
+             -I {input.bam} \
+             -O {output.bam} \
+             -R {input.reference} \
+             --REMOVE_DUPLICATES false \
+             --TMP_DIR {params.tmpdir} \
+             --METRICS_FILE {output.metrics} \
+             --VALIDATION_STRINGENCY SILENT
+        """
+
+
     
 rule convert_to_cram:
     input:
-        bam = "data/bam/{SAMPLE}.rg.sorted.bam",
+        bam = "data/bam/{SAMPLE}.dupmarked.bam",
         reference = ELIFE_REF_FH,
     output:
-        cram = temp("data/cram/{SAMPLE}.cram")
+        cram = temp("data/cram/{SAMPLE}.dupmarked.cram")
     threads: 8
     shell:
         """
@@ -132,33 +162,6 @@ rule convert_to_cram:
                       {input.bam}
         """
 
-# NOTE: careful, this removes the embedded reference!
-rule mark_duplicates:
-    input:
-        cram = "data/cram/{SAMPLE}.cram",
-        reference = "data/ref/human_g1k_v38_decoy_phix.fasta",
-    output:
-        cram = "data/cram/{SAMPLE}.dupmarked.cram",
-        metrics = "data/markdup_metrics/{SAMPLE}.metrics.txt"
-    params:
-        tmpdir = "/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/"
-    resources:
-        mem_mb = 64_000,
-        runtime = 1_080
-    shell:
-        """
-        module load gatk/4.6
-
-        gatk --java-options "-Xmx48g" \
-             MarkDuplicates \
-             -I {input.cram} \
-             -O {output.cram} \
-             -R {input.reference} \
-             --REMOVE_DUPLICATES false \
-             --TMP_DIR {params.tmpdir} \
-             --METRICS_FILE {output.metrics} \
-             --VALIDATION_STRINGENCY SILENT
-        """
 
 
 rule index_cram:
