@@ -43,7 +43,7 @@ with open("json/cram_mapping.realigned.json") as f:
         fh = d["cram_fh"]
         SMP2CRAM_NEW[sample] = fh
 
-print (SMP2CRAM_NEW["130053"])
+
 def get_new_cram_fh(wildcards):
     return SMP2CRAM_NEW[wildcards.SAMPLE]
 
@@ -51,11 +51,14 @@ def get_new_cram_idx_fh(wildcards):
     return SMP2CRAM_NEW[wildcards.SAMPLE] + ".crai"
 
 
+# def get_fastq_fh(wildcards):
+
+
 include: "rules/call_variants.smk"
 
 ### NOTE: comment out this rule if we're running on the "alignment" (rather)
 # than "realignment" samples
-# include: "rules/cram2fastq.smk"
+include: "rules/cram2fastq.smk"
 include: "rules/fastq2bam.smk"
 
 
@@ -64,6 +67,10 @@ wildcard_constraints:
     CHROM = r"chr[0-9]{1,2}|chrX|chrY",
     SAMPLE = r"[0-9]{4,7}"
 
+
+### NOTE: these are samples for whom we do nothing!
+elife_provenance = (["eLife"])
+samples_to_keep = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(elife_provenance))]["UGRP_Lab_ID"].to_list()
 
 ### NOTE: these are samples for whom we extract FASTQ from CIDR CRAMs and realign. ###
 realignment_provenance = (["CIDR_rd1", "CIDR_rd1,CIDR_rd2"])
@@ -74,26 +81,36 @@ samples_to_realign = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(realig
 alignment_provenance = (["UofU_rd1", "UofU_rd2,eLife", "UofU_rd2", "CIDR_rd1,UofU_rd2"])
 samples_to_align = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(alignment_provenance))]["UGRP_Lab_ID"].to_list()
 
+ad_hoc_provenance = (["CIDR_rd1,CIDR_rd2,UofU_rd1", "CIDR_rd1,CIDR_rd2,UofU_rd2"])
+samples_ad_hoc = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(ad_hoc_provenance))]["UGRP_Lab_ID"].to_list()
+
+print (samples_ad_hoc)
+
 # find samples without sex info
 no_sex = [s for s in samples_to_align if s not in SMP2SEX]
 
-samples = [s for s in samples_to_align if s not in no_sex]
+simple_samples = samples_to_keep + samples_to_realign + samples_to_align
+
+samples = [s for s in simple_samples if s not in no_sex]
+print (len(samples))
 
 rule all:
     input:
-        expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = samples, CHROM=CHROMS),
-        # expand("data/cram/{SAMPLE}.cram.crai", SAMPLE = ["280013"])
+        # expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = samples, CHROM=["chr1"]),
+        expand("data/cram/{SAMPLE}.dupmarked.cram", SAMPLE = samples_ad_hoc)
+        #expand("data/vcf/joint_genotyped/GRCh38.{CHROM}.joint_genotyped.bcf", CHROM=CHROMS)
+        # expand("data/fastq/{SAMPLE}.{which}.fastq.gz", SAMPLE=samples_ad_hoc, which=["1", "2"])
 
 
-# rule joint_genotype:
-#     input:
-#         sif = "glnexus_v1.2.7.sif",
-#         gvcfs = expand("data/vcf/per-chrom/{SAMPLE}.{{ASSEMBLY}}.{{CHROM}}.g.vcf.gz", SAMPLE=all_samples),
-#     output: "data/vcf/joint_genotyped/{ASSEMBLY}.{CHROM}.joint_genotyped.bcf"
-#     threads: 16
-#     params:
-#         gl_nexus_prefix = lambda wildcards: f"gl_nexus_dbs/{wildcards.ASSEMBLY}_{wildcards.CHROM}"
-#     resources:
-#         mem_mb = 64_000
-#     script:
-#         "rules/bash_scripts/joint_genotype.sh"
+rule joint_genotype:
+    input:
+        sif = "glnexus_v1.2.7.sif",
+        gvcfs = expand("data/vcf/per-chrom/{SAMPLE}.{{ASSEMBLY}}.{{CHROM}}.g.vcf.gz", SAMPLE=samples),
+    output: "data/vcf/joint_genotyped/{ASSEMBLY}.{CHROM}.joint_genotyped.bcf"
+    threads: 16
+    params:
+        gl_nexus_prefix = lambda wildcards: f"gl_nexus_dbs/{wildcards.ASSEMBLY}_{wildcards.CHROM}"
+    resources:
+        mem_mb = 64_000
+    script:
+        "rules/bash_scripts/joint_genotype.sh"

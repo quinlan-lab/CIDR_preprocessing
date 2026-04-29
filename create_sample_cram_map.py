@@ -95,7 +95,6 @@ ELIFE_INFO["provenance"] = "eLife"
 
 merged = pd.concat([CIDR_ORIG_INFO, CIDR_TOPUP_INFO, DEB_INFO, WATKINS_INFO, ELIFE_INFO])
 prov = merged.groupby("UGRP_Lab_ID").agg(sequencing_provenance = ("provenance", lambda p: ",".join(p)), n_prov = ("provenance", lambda p: len(p))).reset_index()
-prov.query("sequencing_provenance == 'CIDR_rd1,CIDR_rd2,UofU_rd2' or sequencing_provenance == 'CIDR_rd1,CIDR_rd2,UofU_rd1'")[["UGRP_Lab_ID", "sequencing_provenance"]].to_csv("a.tsv", sep="\t", index=False)
 prov.groupby("sequencing_provenance").size().reset_index().rename(columns={0: "count"}).sort_values("count", ascending=False).to_csv("a.tsv", sep="\t", index=False)
 
 prov.to_csv("PROVENANCE.tsv", sep="\t", index=False)
@@ -106,21 +105,14 @@ missing = []
 for sample, sample_df in merged.groupby("UGRP_Lab_ID"):
     provenance = sample_df["provenance"].to_list()
 
-    # these are difficult samples that have to be handled manually
     cram_path = None
-    if len(provenance) > 2:
-        pass
-    # these are "easy" samples for which the final CRAM should already have been processed correctly
-    # (by either aligning FASTQ from .ora or by getting FASTQ from an existing CRAM)
-    elif provenance in (["CIDR_rd1"], ["UofU_rd1"], ["CIDR_rd1", "CIDR_rd2"], ["UofU_rd2", "eLife"], ["UofU_rd2"], ["CIDR_rd1", "UofU_rd2"]):
-        cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{sample}.dupmarked.cram"
-    # also easy -- we'll leave these as-is
-    elif provenance == ["eLife"]:
+    if provenance == ["eLife"]:
+        # cram_path = f"/scratch/ucgd/lustre-core/UCGD_Datahub/Mosaic/920/UCGD/GRCh38/Data/PolishedCrams/{sample}.cram"
         cram_path = f"/scratch/ucgd/lustre-labs/quinlan/data-shared/datasets/CEPH/cram/{sample}.cram"
     # otherwise, there's some manual stuff we'll have to do
     else:
-        pass
-    
+        cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{sample}.dupmarked.cram"
+
     if cram_path is not None and os.path.exists(cram_path):
         res.append({"ugrp_sample_id": sample, "cram_fh": cram_path})
     else:
@@ -143,24 +135,32 @@ for sample, sample_df in merged.groupby("UGRP_Lab_ID"):
         assert len(prefix) == 1
         prefix = prefix.pop()
         cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/Quinlan_Released_Data/CRAM/{prefix}.cram"
+
     # these are "easy" samples for which the original CRAM (from which we'll extract FASTQ) is known
     elif provenance == ["CIDR_rd1", "CIDR_rd2"]:
         prefix = CIDR_TOPUP_INFO[CIDR_TOPUP_INFO["UGRP_Lab_ID"] == sample]["prefix"].to_list()
         assert len(prefix) == 1
         prefix = prefix.pop()
         cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/dataset_to_PI_release2/CRAM/{prefix}.cram"
+
+    # these are samples for which we'll both extract FASTQ from the CIDR rd2 AND combine with FASTQ extracted from ORA
+    elif provenance in (["CIDR_rd1", "CIDR_rd2", "UofU_rd1"], ["CIDR_rd1", "CIDR_rd2", "UofU_rd2"]):
+        prefix = CIDR_TOPUP_INFO[CIDR_TOPUP_INFO["UGRP_Lab_ID"] == sample]["prefix"].to_list()
+        assert len(prefix) == 1
+        prefix = prefix.pop()
+        cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/dataset_to_PI_release2/CRAM/{prefix}.cram"
+    
+    # these are the three samples for which I manually created *single* CIDR CRAMs
+    elif provenance == ["CIDR_rd1", "CIDR_rd1"]:
+        cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/Quinlan_Released_Data/CRAM/{sample}.cram"
     else:
         pass
-    
     if cram_path is not None and os.path.exists(cram_path):
         res.append({"ugrp_sample_id": sample, "cram_fh": cram_path})
     else:
         missing.append({"ugrp_sample_id": sample, "provenance": ",".join(provenance)})
 
-print (len(res))
-print (pd.DataFrame(missing))
+print (pd.DataFrame(missing).groupby("provenance").size())
 
 with open("json/cram_mapping.to_extract.json", "w") as f:
     json.dump(res, f, indent=4)
-
-
