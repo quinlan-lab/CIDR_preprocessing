@@ -42,9 +42,12 @@ scott_sample2ora = manifest.groupby("Sample Name").agg(ora_list = ("complete_fil
 # combine scott and deb 
 sample2ora = scott_sample2ora | neklason_sample2ora
 
+print (sample2ora["150070"])
+
 rule all:
     input:
-        expand("data/fastq/{SAMPLE}.1.fastq.gz", SAMPLE = [k for k, v in sample2ora.items()])
+        # expand("data/fastq/from_ora/{SAMPLE}.1.fastq.gz", SAMPLE = [k for k, v in sample2ora.items()])
+        expand("data/fastq/from_ora/{SAMPLE}.1.fastq.gz", SAMPLE = ["110061", "110064"])
 
 rule decompress:
     input:
@@ -64,8 +67,8 @@ rule concatenate:
     input:
         placeholder_fastq = "data/fastq/{SAMPLE}_0.fq.gz_1"
     output:
-        fq1 = "data/fastq/{SAMPLE}.1.fastq.gz",
-        fq2 = "data/fastq/{SAMPLE}.2.fastq.gz"
+        fq1 = "data/fastq/from_ora/{SAMPLE}.1.fastq.gz",
+        fq2 = "data/fastq/from_ora/{SAMPLE}.2.fastq.gz"
     params:
         n_input_files = lambda wildcards: len(sample2ora[wildcards.SAMPLE]),
         fastq1_list = lambda wildcards: [f"data/fastq/{wildcards.SAMPLE}_{n_fq}.fq.gz_1" for n_fq in range(len(sample2ora[wildcards.SAMPLE]))],

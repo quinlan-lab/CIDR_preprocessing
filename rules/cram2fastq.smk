@@ -25,10 +25,10 @@ rule namesort_cram:
 rule cram2fastq:
     input:
         cram = "data/intermediate_cram/{SAMPLE}.sorted.cram",
-        reference = DRAGEN_REF_FH,
+        ref = get_cram2fastq_ref,
     output:
-        fq1 = temp("data/fastq/{SAMPLE}.1.fastq.gz"),
-        fq2 = temp("data/fastq/{SAMPLE}.2.fastq.gz")
+        fq1 = temp("data/fastq/from_cram/{SAMPLE}.1.fastq.gz"),
+        fq2 = temp("data/fastq/from_cram/{SAMPLE}.2.fastq.gz")
     threads: 8
     resources:
         mem_mb = 32_000
@@ -37,36 +37,8 @@ rule cram2fastq:
         module load samtools
         
         samtools fastq -@ {threads} \
-                       --reference {input.reference} \
+                       --reference {input.ref} \
                        -1 {output.fq1} \
                        -2 {output.fq2} \
                        {input.cram}
-        """
-
-
-rule clean_with_fastq:
-    input:
-        fq1 = "data/fastq/{SAMPLE}.1.fastq.gz",
-        fq2 = "data/fastq/{SAMPLE}.2.fastq.gz",
-    output:
-        fq1_clean = temp("data/fastq/{SAMPLE}.1.clean.fastq.gz"),
-        fq2_clean = temp("data/fastq/{SAMPLE}.2.clean.fastq.gz"),
-        html_report = "reports/{SAMPLE}-fastp-report.html",
-        json_report = "reports/{SAMPLE}-fastp-report.json"
-    threads: 16
-    log: "logs/fastp/{SAMPLE}.log"
-    shell:
-        """
-        module load fastp
-
-        fastp --in1 {input.fq1} \
-                --in2 {input.fq2} \
-                --out1 {output.fq1_clean} \
-                --out2 {output.fq2_clean} \
-                --thread {threads} \
-                --disable_quality_filtering \
-                --disable_adapter_trimming \
-                --disable_trim_poly_g \
-                --html {output.html_report} \
-                --json {output.json_report}
         """

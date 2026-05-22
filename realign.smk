@@ -1,12 +1,25 @@
 import json
 import pandas as pd
 
-CHROMS = [f"chr{c}" for c in range(1, 23)] + ["chrX", "chrY"]
+CHROMS = [f"chr{c}" for c in range(1, 23)] + ["chrX"]
 
-# we use the DRAGEN REF as the basis for extracting FASTQ for CIDR samples
-DRAGEN_REF_FH = "/scratch/ucgd/lustre-labs/quinlan/u6070793/master_files/hg38.fa"
-# we re-align CIDR to the HG38 version used for the ELIFE samples
-ELIFE_REF_FH = "/scratch/ucgd/lustre/common/data/Reference/GRCh38/human_g1k_v38_decoy_phix.fasta"
+configfile: "config.yaml"
+
+alignment_ref = config["alignment_ref"]
+elife_cram_to_fastq_ref = config["elife_cram_to_fastq_ref"]
+cidr_cram_to_fastq_ref = config["cidr_cram_to_fastq_ref"]
+bam_to_cram_ref = config["bam_to_cram_ref"]
+
+# we use a different cram2fastq reference for eLife and
+# CIDR-aligned CRAMs.
+
+neklason_mapping = pd.read_excel(
+    "data/2025 CEPH resequence submit core.xlsx",
+    sheet_name="2025-08-29 CEPH REsequence list",
+    dtype={"LINKID": str, "LABID": str},
+).rename(columns={"Unnamed: 0": "reseq_reason"})
+
+SAMPLES_TO_MERGE = neklason_mapping[neklason_mapping["reseq_reason"].isin(["WASHU", "CIDRv2"])]["LABID"].unique()
 
 PREF = "/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH"
 
@@ -36,13 +49,12 @@ def get_orig_cram_fh(wildcards):
 # map sample names to new CRAM file handles after realignment, which 
 # we'll use to call variants
 SMP2CRAM_NEW = {}
-with open("json/cram_mapping.realigned.json") as f:
+with open("json/cram_mapping.realignedd.json") as f:
     dicts = json.load(f)
     for d in dicts:
         sample = d["ugrp_sample_id"]
         fh = d["cram_fh"]
         SMP2CRAM_NEW[sample] = fh
-
 
 def get_new_cram_fh(wildcards):
     return SMP2CRAM_NEW[wildcards.SAMPLE]
@@ -51,54 +63,72 @@ def get_new_cram_idx_fh(wildcards):
     return SMP2CRAM_NEW[wildcards.SAMPLE] + ".crai"
 
 
-# def get_fastq_fh(wildcards):
-
-
-include: "rules/call_variants.smk"
-
-### NOTE: comment out this rule if we're running on the "alignment" (rather)
-# than "realignment" samples
-include: "rules/cram2fastq.smk"
-include: "rules/fastq2bam.smk"
-
-
 wildcard_constraints:
     ASSEMBLY = "GRCh38",
     CHROM = r"chr[0-9]{1,2}|chrX|chrY",
     SAMPLE = r"[0-9]{4,7}"
 
-
-### NOTE: these are samples for whom we do nothing!
 elife_provenance = (["eLife"])
-samples_to_keep = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(elife_provenance))]["UGRP_Lab_ID"].to_list()
+elife_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(elife_provenance))]["UGRP_Lab_ID"].to_list()
 
-### NOTE: these are samples for whom we extract FASTQ from CIDR CRAMs and realign. ###
+SAMPLE2SOURCE = {}
+SAMPLE2REF = {}
+
+# NOTE: these are samples for whom we extract FASTQ from eLife CRAMs and
+# merge with aligned data from ORA
+elife_plus_provenance = (["UofU_rd2,eLife"])
+_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(elife_plus_provenance))]["UGRP_Lab_ID"].to_list()
+for s in _samples:
+    SAMPLE2SOURCE[s] = "merged"
+    # which CRAM reference are we using to extract FASTQ?
+    SAMPLE2REF[s] = elife_cram_to_fastq_ref
+
+# NOTE: these are samples for whom we extract FASTQ from CIDR CRAMs 
+# and merge with aligned data from ORA. CIDR rd2 superceedes rd1 if available,
+# because rd2 is merged with rd1.
+cidr_plus_provenance = (["CIDR_rd1,UofU_rd2", "CIDR_rd1,CIDR_rd2,UofU_rd1", "CIDR_rd1,CIDR_rd2,UofU_rd2"])
+_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(cidr_plus_provenance))]["UGRP_Lab_ID"].to_list()
+for s in _samples:
+    SAMPLE2SOURCE[s] = "merged"
+    # which CRAM reference are we using to extract FASTQ?
+    SAMPLE2REF[s] = cidr_cram_to_fastq_ref
+
+# NOTE: these are samples for whom we extract FASTQ from CIDR CRAMs
+# and simply align to a common reference.
 realignment_provenance = (["CIDR_rd1", "CIDR_rd1,CIDR_rd2"])
-samples_to_realign = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(realignment_provenance))]["UGRP_Lab_ID"].to_list()
+_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(realignment_provenance))]["UGRP_Lab_ID"].to_list()
+for s in _samples:
+    SAMPLE2SOURCE[s] = "from_cram"
+    # which CRAM reference are we using to extract FASTQ?
+    SAMPLE2REF[s] = cidr_cram_to_fastq_ref
 
-### NOTE: these are samples for whom we align FASTQ extracted from ORA files, and treat the ### 
-### resulting alignments as the final CRAMs. ###
-alignment_provenance = (["UofU_rd1", "UofU_rd2,eLife", "UofU_rd2", "CIDR_rd1,UofU_rd2"])
-samples_to_align = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(alignment_provenance))]["UGRP_Lab_ID"].to_list()
+# NOTE: these are samples for whom we align FASTQ extracted from ORA files.
+alignment_provenance = (["UofU_rd1", "UofU_rd2"])
+_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(alignment_provenance))]["UGRP_Lab_ID"].to_list()
+for s in _samples:
+    SAMPLE2SOURCE[s] = "from_ora"
 
-ad_hoc_provenance = (["CIDR_rd1,CIDR_rd2,UofU_rd1", "CIDR_rd1,CIDR_rd2,UofU_rd2"])
-samples_ad_hoc = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(ad_hoc_provenance))]["UGRP_Lab_ID"].to_list()
+def get_cram2fastq_ref(wildcards):
+    return SAMPLE2REF[wildcards.SAMPLE]
 
-print (samples_ad_hoc)
+include: "rules/merge_uurd2_with_ceph.smk"
+include: "rules/cram2fastq.smk"
+include: "rules/fastq2bam.smk"
+include: "rules/call_variants.smk"
 
+
+# samples to reprocess
+samples = [s for s in SAMPLE2SOURCE if SAMPLE2SOURCE[s] == "merged"]
 # find samples without sex info
-no_sex = [s for s in samples_to_align if s not in SMP2SEX]
-
-simple_samples = samples_to_keep + samples_to_realign + samples_to_align
-
-samples = [s for s in simple_samples if s not in no_sex]
-print (len(samples))
+samples = [s for s in samples if s in SMP2SEX]
+samples = [s for s in samples if s != "NA12878"]
 
 rule all:
     input:
-        # expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = samples, CHROM=["chr1"]),
-        expand("data/cram/{SAMPLE}.dupmarked.cram", SAMPLE = samples_ad_hoc)
-        #expand("data/vcf/joint_genotyped/GRCh38.{CHROM}.joint_genotyped.bcf", CHROM=CHROMS)
+        expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = samples, CHROM=["chr1"]),
+        # expand("/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{SAMPLE}.cram.crai", SAMPLE = ["1292"]),
+        # expand("data/fastq/merged/{SAMPLE}.1.fastq.gz", SAMPLE = ["8321"])
+        # expand("data/vcf/joint_genotyped/GRCh38.{CHROM}.joint_genotyped.bcf", CHROM=CHROMS)
         # expand("data/fastq/{SAMPLE}.{which}.fastq.gz", SAMPLE=samples_ad_hoc, which=["1", "2"])
 
 
