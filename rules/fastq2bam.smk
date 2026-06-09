@@ -1,16 +1,25 @@
+accts = ["quinlan-rw", "ucgd-rw"]
+
 rule fastq2bam:
     input:
+        bwa_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/src/bwa-mem2-2.3_x64-linux/bwa-mem2",
         ref = config["alignment_ref"],
         fq1 = lambda wildcards: f"data/fastq/{SAMPLE2SOURCE[wildcards.SAMPLE]}/{wildcards.SAMPLE}.1.fastq.gz",
         fq2 = lambda wildcards: f"data/fastq/{SAMPLE2SOURCE[wildcards.SAMPLE]}/{wildcards.SAMPLE}.2.fastq.gz",
     output:
         bam = temp("data/bam/{SAMPLE}.bam")
     threads: 32
+    params:
+        max_records_in_ram = 10_000_000,
+        K = 96_000_000,
+        read_group = lambda wildcards: f"@RG\\tID:{wildcards.SAMPLE}\\tLB:lib1\\tPL:ILLUMINA\\tSM:{wildcards.SAMPLE}\\tPU:{wildcards.SAMPLE}"
     resources:
-        runtime = 360,
-        mem_mb = 64_000
+        runtime = 1440,
+        mem_mb = 64_000,
+        slurm_account = "quinlan-rw",
+        slurm_partition = "quinlan-rw"
     script:
-        "bash_scripts.align.sh"
+        "bash_scripts/align.sh"
 
 
 # NOTE: we can potentially use parabricks for alignment for a massive speedup.
@@ -102,13 +111,12 @@ rule mark_duplicates:
         bam = "data/bam/{SAMPLE}.bam",
         reference = config["alignment_ref"],
     output:
-        bam = "data/bam/{SAMPLE}.dupmarked.bam",
+        bam = temp("data/bam/{SAMPLE}.dupmarked.bam"),
         metrics = "data/markdup_metrics/{SAMPLE}.metrics.txt"
     params:
         tmpdir = "/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/"
     resources:
         mem_mb = 48_000,
-        runtime = 360
     shell:
         """
         module load gatk/4.6
@@ -129,6 +137,8 @@ rule convert_to_cram:
     input:
         bam = "data/bam/{SAMPLE}.dupmarked.bam",
         reference = config["bam_to_cram_ref"],
+                samtools_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/bin/samtools"
+
     output:
         cram = "/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{SAMPLE}.cram"
     threads: 8
@@ -136,9 +146,8 @@ rule convert_to_cram:
         runtime = 180
     shell:
         """
-        module load samtools
 
-        samtools view -@ {threads} \
+        {input.samtools_binary} view -@ {threads} \
                       -C \
                       -o {output.cram} \
                       -T {input.reference} \
@@ -151,15 +160,15 @@ rule convert_to_cram:
 rule index_cram:
     input:
         cram = "/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{SAMPLE}.cram",
+                        samtools_binary = "/uufs/chpc.utah.edu/common/HIPAA/u1006375/bin/samtools"
+
     output:
         idx = "/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{SAMPLE}.cram.crai"
     threads: 8
     resources:
         mem_mb = 32_000
     shell:
-        """
-        module load samtools
-        
-        samtools index -@ {threads} {input.cram}
+        """        
+        {input.samtools_binary} index -@ {threads} {input.cram}
         """
 

@@ -12,8 +12,8 @@ rule call_snvs_cpu:
     resources:
         mem_mb = 32_000,
         runtime = 240,
-        # slurm_account = "ucgd-rw",
-        # slurm_partition = "ucgd-rw"
+        slurm_account = "ucgd-rw",#lambda wildcards: accts[int(wildcards.SAMPLE) % 2],
+        slurm_partition = "ucgd-rw",#lambda wildcards: accts[int(wildcards.SAMPLE) % 2]
     threads: 24
     script:
         "bash_scripts/run_deepvariant.sh"

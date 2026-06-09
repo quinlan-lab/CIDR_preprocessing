@@ -95,7 +95,7 @@ for s in _samples:
 
 # NOTE: these are samples for whom we extract FASTQ from CIDR CRAMs
 # and simply align to a common reference.
-realignment_provenance = (["CIDR_rd1", "CIDR_rd1,CIDR_rd2"])
+realignment_provenance = (["CIDR_rd1", "CIDR_rd1,CIDR_rd2", "CIDR_rd1,CIDR_rd1"])
 _samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(realignment_provenance))]["UGRP_Lab_ID"].to_list()
 for s in _samples:
     SAMPLE2SOURCE[s] = "from_cram"
@@ -116,21 +116,52 @@ include: "rules/cram2fastq.smk"
 include: "rules/fastq2bam.smk"
 include: "rules/call_variants.smk"
 
+# samples for testing relatedness
+som_testing = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(["eLife"]))]["UGRP_Lab_ID"].to_list()[:25]
+som_testing.extend(["10092", "390070"])
 
-# samples to reprocess
-samples = [s for s in SAMPLE2SOURCE if SAMPLE2SOURCE[s] == "merged"]
-# find samples without sex info
-samples = [s for s in samples if s in SMP2SEX]
+cidr_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(["CIDR_rd1", "CIDR_rd1,CIDR_rd2", "CIDR_rd1,CIDR_rd1"]))]["UGRP_Lab_ID"].to_list()
+cidr_uofu_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(["CIDR_rd1,UofU_rd2", "CIDR_rd1,CIDR_rd2,UofU_rd1", "CIDR_rd1,CIDR_rd2,UofU_rd2"]))]["UGRP_Lab_ID"].to_list()
+elife_uofu_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(["UofU_rd2,eLife"]))]["UGRP_Lab_ID"].to_list()
+uofu_samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(["UofU_rd1", "UofU_rd2"]))]["UGRP_Lab_ID"].to_list()
+# samples = PROVENANCE[(PROVENANCE["sequencing_provenance"].isin(["CIDR_rd1"]))]["UGRP_Lab_ID"].to_list()
+# all_samples = [s for s in all_samples if s  not in ("130053", "210071", "300010")]
+samples = uofu_samples + cidr_uofu_samples + elife_uofu_samples + cidr_samples
+# samples = [s for s in samples if s in SMP2SEX]
 samples = [s for s in samples if s != "NA12878"]
-
 rule all:
     input:
-        expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = samples, CHROM=["chr1"]),
-        # expand("/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{SAMPLE}.cram.crai", SAMPLE = ["1292"]),
+        # expand("data/vcf/per-chrom/{SAMPLE}.GRCh38.{CHROM}.g.vcf.gz", SAMPLE = ["150070", "400050", "80010", "300100"], CHROM=CHROMS),
+        expand("/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{SAMPLE}.cram.crai", SAMPLE = samples),
         # expand("data/fastq/merged/{SAMPLE}.1.fastq.gz", SAMPLE = ["8321"])
-        # expand("data/vcf/joint_genotyped/GRCh38.{CHROM}.joint_genotyped.bcf", CHROM=CHROMS)
+        # expand("data/vcf/joint_genotyped/GRCh38.{CHROM}.joint_genotyped.bcf", CHROM=["chr1"])
         # expand("data/fastq/{SAMPLE}.{which}.fastq.gz", SAMPLE=samples_ad_hoc, which=["1", "2"])
+        # "data/vcf/merged/GRCh38.merged.bcf"
+        # "somalier.html"
 
+rule run_somalier:
+    input:
+        cram = get_new_cram_fh,
+        ref = bam_to_cram_ref
+    output: "somalier_data/{SAMPLE}.somalier"
+    shell:
+        """
+        somalier extract -d somalier_data/ \
+                         --sites sites.hg38.vcf.gz \
+                         -f {input.ref} \
+                         {input.cram}
+        """
+
+rule relate_somalier:
+    input:
+        fhs = expand("somalier_data/{SAMPLE}.somalier", SAMPLE=som_testing),
+        ped = "data/ceph.ped"
+    output:
+        "somalier.html"
+    shell:
+        """
+        somalier relate --ped {input.ped} {input.fhs}
+        """
 
 rule joint_genotype:
     input:
@@ -141,6 +172,27 @@ rule joint_genotype:
     params:
         gl_nexus_prefix = lambda wildcards: f"gl_nexus_dbs/{wildcards.ASSEMBLY}_{wildcards.CHROM}"
     resources:
-        mem_mb = 64_000
+        mem_mb = 64_000,
+        slurm_account = "ucgd-rw",
+        slurm_partition = "ucgd-rw"
     script:
         "rules/bash_scripts/joint_genotype.sh"
+
+
+rule combine_vcfs:
+    input:
+        vcfs = expand("data/vcf/joint_genotyped/{{ASSEMBLY}}.{CHROM}.joint_genotyped.bcf", CHROM=CHROMS)
+    output:
+        vcf = "data/vcf/merged/{ASSEMBLY}.merged.bcf"
+    threads: 16
+    resources:
+        runtime = 1440
+    shell:
+        """
+        module load bcftools
+        
+        bcftools concat --threads {threads} \
+                        -Ob \
+                        -o {output.vcf} \
+                        {input.vcfs}
+        """

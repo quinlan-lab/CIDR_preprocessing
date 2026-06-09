@@ -11,36 +11,25 @@ missing = []
 for i, row in prov.iterrows():
     provenance = row["sequencing_provenance"].split(",")
     sample = row["UGRP_Lab_ID"]
-    print(provenance)
     cram_path = None
     # if this sample is from eLife ONLY, we can leave the CRAM as-is
     if provenance == ["eLife"]:
         cram_path = f"/scratch/ucgd/lustre-core/UCGD_Datahub/Mosaic/920/UCGD/GRCh38/Data/PolishedCrams/{sample}.cram"
-
-    # if the provenance is complex (ad hoc), it'll be placed in a separate CRAM
-    elif (
-        provenance == ["UofU_rd2", "eLife"]
-        or provenance == ["CIDR_rd1", "UofU_rd2"]
-        or provenance == ["CIDR_rd1", "CIDR_rd2", "UofU_rd1"]
-        or provenance == ["CIDR_rd1", "CIDR_rd2", "UofU_rd2"]
-        # or provenance == ["CIDR_rd1", "CIDR_rd1"]
-    ):
-        cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{sample}.cram"
-
     # otherwise, we create a new CRAM
     else:
         cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{sample}.cram"
-        # cram_path_old = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/data/cram/{sample}.dupmarked.cram"
-
     if cram_path is not None:
-        res.append({"ugrp_sample_id": sample, "cram_fh": cram_path})
-    if cram_path is not None and not os.path.exists(cram_path):
-        missing.append({"ugrp_sample_id": sample, "provenance": ",".join(provenance)})
+        if os.path.exists(cram_path):
+            #if provenance != ["eLife"]:
+            res.append({"ugrp_sample_id": sample, "cram_fh": cram_path})
+        else:
+            print (sample)
+            missing.append({"ugrp_sample_id": sample, "provenance": ",".join(provenance)})
 
 print(len(res))
 print(pd.DataFrame(missing).groupby("provenance").size())
 
-with open("json/cram_mapping.realignedd.json", "w") as f:
+with open("json/cram_mapping.realigned.json", "w") as f:
     json.dump(res, f, indent=4)
 
 
@@ -132,9 +121,9 @@ for i, row in prov.iterrows():
     elif provenance == ["UofU_rd2", "eLife"]:
         cram_path = f"/scratch/ucgd/lustre-core/UCGD_Datahub/Mosaic/920/UCGD/GRCh38/Data/PolishedCrams/{sample}.cram"
 
-    #     # these are the three samples for which I manually created *single* CIDR CRAMs
-    #     elif provenance == ["CIDR_rd1", "CIDR_rd1"]:
-    #         cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/Quinlan_Released_Data/CRAM/{sample}.cram"
+    #
+    elif provenance == ["CIDR_rd1", "CIDR_rd1"]:
+        cram_path = f"/scratch/ucgd/lustre-core/UCGD_Research/quinlan_NIH/NIH_CIDR_CEPH/Quinlan_Released_Data/CRAM/{sample}.cram"
     else:
         pass
 #     if cram_path is not None and os.path.exists(cram_path):

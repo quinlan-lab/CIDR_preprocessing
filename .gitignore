@@ -1,5 +1,6 @@
 .snakemake/
 analysis/
+genomics_db/
 databases/
 dv_images/
 joint_called/
@@ -7,12 +8,30 @@ logs/
 my_database/
 Quinlan_Pretesting_Data/
 Quinlan_Released_Data/
+dataset_to_PI_release2/
+deep_variant_tmp/
+deep_variant_tmp_2/
+gl_nexus_dbs/
+parabricks_tmp/
+UU_CIDR_CEPH/
+merged/
 recal/
 tranche/
 vqsr_files/
+vcf/
+tmp_db/
+csv/
+data/
+peddy_results/
+gatk_intervals/
+sample_lists/
+sample_maps/
+json/
 
 *.ped
 *.vcf.gz
+*.tbi
 *.genome
 *.MD5
 cohort.sample_map
+*.sif
