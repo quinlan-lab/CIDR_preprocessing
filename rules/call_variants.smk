@@ -1,3 +1,5 @@
+ACCT_OPTIONS = ["quinlan-rw", "ucgd-rw"]
+
 rule call_snvs_cpu:
     input:
         ref = config["bam_to_cram_ref"],
@@ -11,49 +13,53 @@ rule call_snvs_cpu:
         haploid_contigs_arg = lambda wildcards: "--haploid_contigs chrX,chrY" if SMP2SEX[wildcards.SAMPLE] == 1 else ""
     resources:
         mem_mb = 32_000,
-        runtime = 240,
-        slurm_account = "ucgd-rw",#lambda wildcards: accts[int(wildcards.SAMPLE) % 2],
-        slurm_partition = "ucgd-rw",#lambda wildcards: accts[int(wildcards.SAMPLE) % 2]
-    threads: 24
+        runtime = 960,
+        slurm_account = lambda wildcards: ACCT_OPTIONS[int(wildcards.SAMPLE) % 2],
+        slurm_partition = lambda wildcards: ACCT_OPTIONS[int(wildcards.SAMPLE) % 2],
+    threads: 16
     script:
         "bash_scripts/run_deepvariant.sh"
 
+GPU_OPTIONS = ["quinlan-gpu-rw", "ucgd-gpu-rw"]
 
-# def get_haploid_contigs_arg(wildcards, cpu_chroms):
-#     if SMP2SEX[wildcards.SAMPLE] == 2:
-#         return ""
-#     else:
-#         if wildcards.CHROM in cpu_chroms:
-#             return "--haploid_contigs chrX,chrY"
-#         else:
-#             return "--haploid-contigs chrX,chrY"
+rule call_snvs_gpu:
+    input:
+        ref = config["bam_to_cram_ref"],
+        cram = get_new_cram_fh,
+        cram_idx = get_new_cram_idx_fh,
+        sif = "clara-parabricks_4.7.1-1.sif"
+    output:
+        vcf = "data/vcf/per-sample/{SAMPLE}.{ASSEMBLY}.vcf.gz",
+        gvcf = "data/vcf/per-sample/{SAMPLE}.{ASSEMBLY}.g.vcf.gz",
+    params:
+        haploid_contigs_arg = lambda wildcards: "--haploid-contigs chrX,chrY" if SMP2SEX[wildcards.SAMPLE] == 1 else ""
+    threads: 16
+    resources:
+        mem_mb = 64_000,
+        runtime = 60,
+        cpus_per_gpu = 64,
+        gpu = 1,
+        slurm_account = lambda wildcards: GPU_OPTIONS[int(wildcards.SAMPLE) % 2],
+        slurm_partition = lambda wildcards: GPU_OPTIONS[int(wildcards.SAMPLE) % 2],
+        slurm_extra = "--exclusive"
+    script:
+        "bash_scripts/run_deepvariant_parabricks.sh"
 
 
-# # NOTE: this rule supersedes above two rules -- bash script contains
-# # logic for running DV on either CPU or GPU, depending on the chrom
-# # we're processing.
-# rule call_snvs_cpu_gpu:
+# rule split_by_chrom:
 #     input:
-#         ref = ELIFE_REF_FH,
-#         cram = get_new_cram_fh,
-#         cram_idx = get_new_cram_idx_fh,
+#         vcf = "data/vcf/per-sample/{SAMPLE}.{ASSEMBLY}.vcf.gz",
+#         gvcf = "data/vcf/per-sample/{SAMPLE}.{ASSEMBLY}.g.vcf.gz",
 #     output:
 #         vcf = "data/vcf/per-chrom/{SAMPLE}.{ASSEMBLY}.{CHROM}.vcf.gz",
 #         gvcf = "data/vcf/per-chrom/{SAMPLE}.{ASSEMBLY}.{CHROM}.g.vcf.gz",
-#     params:
-#         sif = lambda wildcards: "deepvariant_1.9.0.sif" if wildcards.CHROM in cpu_chroms else "clara-parabricks_4.6.0-1.sif",
-#         haploid_contigs_arg = lambda wildcards: get_haploid_contigs_arg(wildcards, cpu_chroms),
-#         gpu = lambda wildcards: 0 if wildcards.CHROM in cpu_chroms else 1
-#     resources:
-#         mem_mb = lambda wildcards: 64_000 if wildcards.CHROM in gpu_chroms else 32_000,
-#         runtime = lambda wildcards: 60 if wildcards.CHROM in gpu_chroms else 360,
-#         gpu = lambda wildcards: 1 if wildcards.CHROM in gpu_chroms else None,
-#         cpus_per_gpu = lambda wildcards: 64 if wildcards.CHROM in gpu_chroms else None,
-#         slurm_account = lambda wildcards: "ucgd-rw" if wildcards.CHROM in ucgd_chroms else "quinlan-rw" if wildcards.CHROM in quinlan_chroms else "quinlan-gpu-rw",
-#         slurm_partition = lambda wildcards: "ucgd-rw" if wildcards.CHROM in ucgd_chroms else "quinlan-rw" if wildcards.CHROM in quinlan_chroms else "quinlan-gpu-rw",
-#         slurm_extra = lambda wildcards: "--exclusive" if wildcards.CHROM in gpu_chroms else "--exclude=rw159"
-#     threads: 16
-#     script:
-#         "bash_scripts/run_deepvariant_cpu_gpu.sh"
-
+#     threads: 4
+#     shell:
+#         """
+#         module load bcftools
+        
+#         bcftools view --threads {threads} -Ob -o {output.vcf} {input.vcf} {wildcards.CHROM}
+#         bcftools view --threads {threads} -Ob -o {output.gvcf} {input.gvcf} {wildcards.CHROM}
+#         """
+        
 
