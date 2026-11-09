@@ -1,5 +1,3 @@
-ACCT_OPTIONS = ["quinlan-rw", "ucgd-rw"]
-
 rule fastq2bam:
     input:
         alignment_ref = config["alignment_ref"],
@@ -18,9 +16,9 @@ rule fastq2bam:
         read_group = lambda wildcards: f"@RG\\tID:{wildcards.SAMPLE}\\tLB:lib1\\tPL:ILLUMINA\\tSM:{wildcards.SAMPLE}\\tPU:{wildcards.SAMPLE}",
         tmp_prefix = lambda wildcards: f"/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp/{wildcards.SAMPLE}"
     resources:
-        runtime = 960,
-        mem_mb = 64_000,
-        slurm_account = "ucgd-rw", #lambda wildcards: ACCT_OPTIONS[int(wildcards.SAMPLE) % 2],
-        slurm_partition = "ucgd-rw", #lambda wildcards: ACCT_OPTIONS[int(wildcards.SAMPLE) % 2],
+        runtime = 1440,
+        mem_mb = 96_000,
+        slurm_account = "quinlan-rw",
+        slurm_partition = "quinlan-rw",
     script:
         "bash_scripts/align.sh"

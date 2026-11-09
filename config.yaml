@@ -4,5 +4,7 @@ elife_cram_to_fastq_ref:
     /scratch/ucgd/lustre/common/data/Reference/homo_sapiens/GRCh38/primary_assembly_decoy_phix.fa
 alignment_ref:
     /scratch/ucgd/lustre/common/data/Reference/homo_sapiens/GRCh38/primary_assembly_decoy_phix_masked.fa
+alignment_alt_contigs:
+    /scratch/ucgd/lustre/common/data/Reference/homo_sapiens/GRCh38/primary_assembly_decoy_phix_masked.fa.alt
 bam_to_cram_ref:
     /scratch/ucgd/lustre/common/data/Reference/homo_sapiens/GRCh38/primary_assembly_decoy_phix.fa
