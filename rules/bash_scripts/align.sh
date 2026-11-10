@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-module load bwa/0.7.17 gatk/4.6 samtools
+module load bwa/0.7.17 k8 gatk/4.6 samtools
 
 SAMTOOLS_TMPDIR=/scratch/ucgd/lustre-labs/quinlan/u1006375/samtools_tmp
 
